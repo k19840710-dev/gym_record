@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="家族のジム出席をカレンダーで記録し、メンバー別の月平均・達成率・推移を確認できるトラッカーです。">
+<title>家族のジム通いログ</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style id="app-style">
+  html, body { background: #f8fafc; }
+  svg { width: 20px; height: 20px; }
+  :focus-visible { outline: 2px solid #10b981; outline-offset: 2px; border-radius: 4px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* このスクリプト自身のソースを保持しておく。家族全員で記録を共有する
+   * ために、状態が変わるたびに「このページ全体」を再パブリッシュする
+   * 必要があるので、自分自身のコードを丸ごと埋め込み直すのに使う。 */
+  var OWN_SCRIPT_SOURCE = document.currentScript ? document.currentScript.textContent : '';
+
+  /* =========================================================
+   * 色パレット（元デザインの6色をそのまま使用）
+   * ========================================================= */
+  var COLOR_PALETTES = [
+    { id: 'blue',    bg: 'bg-blue-500',    text: 'text-blue-600',    lightBg: 'bg-blue-50',    border: 'border-blue-300',    name: '青' },
+    { id: 'emerald', bg: 'bg-emerald-500', text: 'text-emerald-600', lightBg: 'bg-emerald-50', border: 'border-emerald-300', name: '緑' },
+    { id: 'amber',   bg: 'bg-amber-500',   text: 'text-amber-600',   lightBg: 'bg-amber-50',   border: 'border-amber-300',   name: '黄' },
+    { id: 'rose',    bg: 'bg-rose-500',    text: 'text-rose-600',    lightBg: 'bg-rose-50',    border: 'border-rose-300',    name: '赤' },
+    { id: 'purple',  bg: 'bg-purple-500',  text: 'text-purple-600',  lightBg: 'bg-purple-50',  border: 'border-purple-300',  name: '紫' },
+    { id: 'cyan',    bg: 'bg-cyan-500',    text: 'text-cyan-600',    lightBg: 'bg-cyan-50',    border: 'border-cyan-300',    name: '水色' }
+  ];
+  function getColor(id) {
+    for (var i = 0; i < COLOR_PALETTES.length; i++) if (COLOR_PALETTES[i].id === id) return COLOR_PALETTES[i];
+    return COLOR_PALETTES[0];
+  }
+
+  var STORAGE_KEY = 'family-gym-log:v1';
+  var WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+  /* =========================================================
+   * アイコン（lucide 風のインライン SVG）
+   * ========================================================= */
+  var ICON_PATHS = {
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    barChart3: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
+    chevronLeft: '<polyline points="15 18 9 12 15 6"/>',
+    chevronRight: '<polyline points="9 18 15 12 9 6"/>',
+    plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+    x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    check: '<polyline points="20 6 9 17 4 12"/>',
+    trash2: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
+    edit3: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    dumbbell: '<rect x="1.5" y="9" width="3.2" height="6" rx="1"/><rect x="19.3" y="9" width="3.2" height="6" rx="1"/><rect x="4.7" y="10" width="2" height="4"/><rect x="17.3" y="10" width="2" height="4"/><line x1="6.7" y1="12" x2="17.3" y2="12"/>',
+    flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+    trendingUp: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+    award: '<circle cx="12" cy="8" r="6"/><path d="M8.5 13.5 7 22l5-3 5 3-1.5-8.5"/>',
+    userCheck: '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/>',
+    alertTriangle: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="0.9" fill="currentColor" stroke="none"/>'
+  };
+  function icon(name, cls, extraAttrs) {
+    var body = ICON_PATHS[name] || '';
+    return '<svg class="' + (cls || '') + ' shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"' + (extraAttrs || '') + '>' + body + '</svg>';
+  }
+
+  /* =========================================================
+   * 日付ユーティリティ
+   * ========================================================= */
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function dateKey(y, m, d) { return y + '-' + pad2(m) + '-' + pad2(d); }
+  function monthKey(y, m) { return y + '-' + pad2(m); }
+  function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+  function addMonths(y, m, delta) {
+    var total = y * 12 + (m - 1) + delta;
+    return { y: Math.floor(total / 12), m: (((total % 12) + 12) % 12) + 1 };
+  }
+  function monthDiff(y1, m1, y2, m2) { return (y2 - y1) * 12 + (m2 - m1); }
+
+  var now = new Date();
+  var TODAY = { y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() };
+  var TODAY_KEY = dateKey(TODAY.y, TODAY.m, TODAY.d);
+
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function clampGoal(v) {
+    var n = parseInt(v, 10);
+    if (!isFinite(n) || isNaN(n)) n = 8;
+    return Math.min(31, Math.max(1, n));
+  }
+
+  /* =========================================================
+   * 永続化（localStorage）
+   * ========================================================= */
+  var storageAvailable = true;
+  try { localStorage.setItem('__probe__', '1'); localStorage.removeItem('__probe__'); }
+  catch (e) { storageAvailable = false; }
+
+  function buildSeedData() {
+    var seedStart = addMonths(TODAY.y, TODAY.m, -2);
+    var createdAt = seedStart.y + '-' + pad2(seedStart.m) + '-01';
+    var members = [
+      { id: '1', name: 'お父さん', colorId: 'blue', goal: 8, createdAt: createdAt },
+      { id: '2', name: 'お母さん', colorId: 'rose', goal: 8, createdAt: createdAt },
+      { id: '3', name: '自分', colorId: 'emerald', goal: 12, createdAt: createdAt },
+      { id: '4', name: '妹', colorId: 'amber', goal: 6, createdAt: createdAt }
+    ];
+    var gymLogs = {};
+    [2, 4, 7, 9, 12, 14, 16, 19, 21, 23, 26, 28].forEach(function (d) {
+      if (d > TODAY.d) return;
+      var key = dateKey(TODAY.y, TODAY.m, d);
+      if (d % 2 === 0) gymLogs[key] = ['1', '3'];
+      else if (d % 3 === 0) gymLogs[key] = ['2', '4'];
+      else gymLogs[key] = ['1', '2', '3'];
+    });
+    var prev = addMonths(TODAY.y, TODAY.m, -1);
+    [3, 5, 8, 10, 12, 15, 17, 20, 22, 24, 27, 29].forEach(function (d) {
+      gymLogs[dateKey(prev.y, prev.m, d)] = ['1', '3', '4'];
+    });
+    return { members: members, gymLogs: gymLogs };
+  }
+
+  function loadInitialData() {
+    if (storageAvailable) {
+      try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.members) && parsed.gymLogs && typeof parsed.gymLogs === 'object') {
+            return { members: parsed.members, gymLogs: parsed.gymLogs };
+          }
+        }
+      } catch (e) { /* 壊れたデータはシードにフォールバック */ }
+    }
+    return buildSeedData();
+  }
+  function persist() {
+    if (!storageAvailable) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ members: state.members, gymLogs: state.gymLogs })); }
+    catch (e) { /* 保存領域切れなどは静かに無視 */ }
+  }
+
+  /* =========================================================
+   * 家族での共有・同期（artifact capability）
+   * -----------------------------------------------------------
+   * このページを開いている全員に同じ記録を見せるため、状態が変わる
+   * たびに「ページ全体」を作り直して再パブリッシュする。成功すると
+   * 開いている全ビューが自動的に最新版へ再読み込みされる仕組み。
+   * ========================================================= */
+  function buildFullHtml(dataObj) {
+    var headBits = [
+      '<meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    ];
+    var titleEl = document.querySelector('title');
+    headBits.push(titleEl ? titleEl.outerHTML : '<title>家族のジム通いログ</title>');
+    var tailwindScript = document.querySelector('script[src*="tailwindcss.com"]');
+    if (tailwindScript) headBits.push('<script src="' + tailwindScript.src + '"><' + '/script>');
+    var styleEl = document.getElementById('app-style');
+    if (styleEl) headBits.push(styleEl.outerHTML);
+
+    var dataJson = JSON.stringify(dataObj).replace(/</g, '\\u003c');
+    var scriptSource = String(OWN_SCRIPT_SOURCE).split('</script').join('<\\/script');
+    var bodyBits = [
+      '<div id="app"></div>',
+      '<script id="app-data" type="application/json">' + dataJson + '<' + '/script>',
+      '<script>' + scriptSource + '<' + '/script>'
+    ];
+
+    return '<!doctype html>\n<html>\n<head>\n' + headBits.join('\n') + '\n</head>\n<body>\n' + bodyBits.join('\n') + '\n</body>\n</html>';
+  }
+
+  var artifactCapPromise = null;
+  function getArtifact() {
+    if (!window.claude || typeof window.claude.use !== 'function') return Promise.resolve(null);
+    if (!artifactCapPromise) artifactCapPromise = window.claude.use('artifact').catch(function () { return null; });
+    return artifactCapPromise;
+  }
+
+  function syncState() {
+    persist(); // このブラウザだけのキャッシュとしても保持しておく
+    if (state.readOnly) return; // 一度書き込み不可と判明したら再送しない
+    getArtifact().then(function (artifact) {
+      if (!artifact) return; // capability が使えないビュー（この端末限定のまま）
+      artifact.publish(buildFullHtml({ members: state.members, gymLogs: state.gymLogs })).catch(function (err) {
+        var code = err && err.code;
+        if (code === 'not_writer' || code === 'not_granted' || code === 'consent_required') {
+          state.readOnly = true;
+          state.readOnlyNoticeDismissed = false;
+          render();
+        } else if (code === 'conflict') {
+          /* 他の人が先に更新済み。まもなくこのビューは最新版へ再読み込みされる */
+        } else {
+          state.syncErrorNotice = true;
+          render();
+        }
+      });
+    });
+  }
+
+  /* 家族全員で見られるように、artifact capability が使える環境では
+   * 「このページ自身に埋め込まれた最新データ」を最優先で読み込む。
+   * これは自分のブラウザだけの localStorage とは違い、誰かが更新して
+   * 再パブリッシュしたページを開けば全員が同じ内容を見られる。 */
+  function loadEmbeddedData() {
+    try {
+      var el = document.getElementById('app-data');
+      if (el) {
+        var parsed = JSON.parse(el.textContent);
+        if (parsed && Array.isArray(parsed.members) && parsed.gymLogs && typeof parsed.gymLogs === 'object') {
+          return { members: parsed.members, gymLogs: parsed.gymLogs };
+        }
+      }
+    } catch (e) { /* 壊れていれば無視してフォールバック */ }
+    return null;
+  }
+
+  var seed = loadEmbeddedData() || loadInitialData();
+
+  /* =========================================================
+   * アプリ状態
+   * ========================================================= */
+  var state = {
+    members: seed.members,
+    gymLogs: seed.gymLogs,
+    activeTab: 'calendar',
+    viewYear: TODAY.y,
+    viewMonth: TODAY.m,
+    selectedDateStr: TODAY_KEY,
+    addMember: { name: '', goal: 8, colorId: null, error: '' },
+    editing: null,
+    pendingDeleteId: null,
+    focusTarget: null,
+    bannerDismissed: false,
+    readOnly: false,
+    readOnlyNoticeDismissed: false,
+    syncErrorNotice: false
+  };
+  state.addMember.colorId = pickDefaultColor(null);
+
+  function usedColorIds(excludeId) {
+    var s = {};
+    state.members.forEach(function (m) { if (m.id !== excludeId) s[m.colorId] = true; });
+    return s;
+  }
+  function pickDefaultColor(excludeId) {
+    var used = usedColorIds(excludeId);
+    for (var i = 0; i < COLOR_PALETTES.length; i++) if (!used[COLOR_PALETTES[i].id]) return COLOR_PALETTES[i].id;
+    return COLOR_PALETTES[0].id;
+  }
+  function validateMemberName(name, excludeId) {
+    if (!name) return '名前を入力してください';
+    if (name.length > 12) return '名前は12文字以内で入力してください';
+    var dup = state.members.some(function (m) { return m.id !== excludeId && m.name.trim().toLowerCase() === name.toLowerCase(); });
+    if (dup) return 'その名前はすでに使われています';
+    return '';
+  }
+
+  /* =========================================================
+   * 集計ロジック
+   * 月平均は「メンバーが記録を開始した月から、直近の完了した月」のみを
+   * 対象にする（当月は除く／記録0の月も分母に含める）
+   * ========================================================= */
+  function computeStats() {
+    var monthPrefix = monthKey(state.viewYear, state.viewMonth);
+    var monthlyCounts = {};
+    state.members.forEach(function (m) { monthlyCounts[m.id] = 0; });
+    var totalVisitsThisMonth = 0, uniqueDaysThisMonth = 0;
+
+    Object.keys(state.gymLogs).forEach(function (date) {
+      if (date.indexOf(monthPrefix) !== 0) return;
+      var ids = state.gymLogs[date];
+      if (ids.length) uniqueDaysThisMonth++;
+      ids.forEach(function (id) { if (monthlyCounts[id] !== undefined) { monthlyCounts[id]++; totalVisitsThisMonth++; } });
+    });
+
+    var familyAvgThisMonth = state.members.length ? totalVisitsThisMonth / state.members.length : 0;
+    var curMonthKey = monthKey(TODAY.y, TODAY.m);
+
+    var memberAverages = {};
+    state.members.forEach(function (m) {
+      var parts = m.createdAt.split('-').map(Number);
+      var completeMonths = monthDiff(parts[0], parts[1], TODAY.y, TODAY.m);
+      if (completeMonths < 0) completeMonths = 0;
+      var startKey = monthKey(parts[0], parts[1]);
+      var total = 0;
+      if (completeMonths > 0) {
+        Object.keys(state.gymLogs).forEach(function (date) {
+          var ids = state.gymLogs[date];
+          if (ids.indexOf(m.id) === -1) return;
+          var dm = date.slice(0, 7);
+          if (dm >= startKey && dm < curMonthKey) total++;
+        });
+      }
+      memberAverages[m.id] = completeMonths > 0 ? { value: total / completeMonths, months: completeMonths } : { value: null, months: 0 };
+    });
+
+    var validValues = Object.keys(memberAverages).map(function (id) { return memberAverages[id].value; }).filter(function (v) { return v !== null; });
+    var familyAvgOverall = validValues.length ? validValues.reduce(function (a, b) { return a + b; }, 0) / validValues.length : null;
+
+    var trend = [];
+    for (var i = 5; i >= 0; i--) {
+      var mk = addMonths(TODAY.y, TODAY.m, -i);
+      var prefix = monthKey(mk.y, mk.m);
+      var total2 = 0;
+      Object.keys(state.gymLogs).forEach(function (date) { if (date.indexOf(prefix) === 0) total2 += state.gymLogs[date].length; });
+      trend.push({ year: mk.y, month: mk.m, total: total2, isCurrent: i === 0 });
+    }
+
+    return { monthlyCounts: monthlyCounts, totalVisitsThisMonth: totalVisitsThisMonth, uniqueDaysThisMonth: uniqueDaysThisMonth, familyAvgThisMonth: familyAvgThisMonth, memberAverages: memberAverages, familyAvgOverall: familyAvgOverall, trend: trend };
+  }
+
+  function fmt1(n) { return n.toFixed(1); }
+
+  /* =========================================================
+   * 描画（元デザインの Tailwind クラスをそのまま使用）
+   * ========================================================= */
+  function renderHeader() {
+    function tabBtn(key, iconName, label) {
+      var active = state.activeTab === key;
+      return '<button data-action="set-tab" data-tab="' + key + '" role="tab" aria-selected="' + active + '" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ' +
+        (active ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-600 hover:text-slate-900') + '">' +
+        icon(iconName, 'w-4 h-4') + '<span>' + label + '</span></button>';
+    }
+    return '' +
+      '<header class="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">' +
+      '<div class="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between">' +
+      '<div class="flex items-center space-x-2.5">' +
+      '<div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white shadow-md shadow-emerald-100">' + icon('dumbbell', 'w-5 h-5') + '</div>' +
+      '<div><h1 class="text-lg font-bold leading-tight text-slate-900 flex items-center gap-2">家族のジム通いログ' +
+      (state.readOnly ? '<span class="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">閲覧専用</span>' : '') +
+      '</h1><p class="text-xs text-slate-500">みんなで目指す健康習慣</p></div>' +
+      '</div>' +
+      '<nav role="tablist" aria-label="表示切り替え" class="flex bg-slate-100 p-1 rounded-xl">' +
+      tabBtn('calendar', 'calendar', 'カレンダー') + tabBtn('stats', 'barChart3', '集計・平均') + tabBtn('members', 'users', '家族メンバー') +
+      '</nav>' +
+      '</div>' +
+      '</header>';
+  }
+
+  function renderStorageBanner() {
+    var banners = '';
+    if (!storageAvailable && !state.bannerDismissed) {
+      banners += '<div class="flex items-center justify-between gap-3 bg-rose-50 border border-rose-100 text-rose-700 text-xs px-4 py-2.5 rounded-xl font-medium">' +
+        '<span class="flex items-center gap-2">' + icon('alertTriangle', 'w-4 h-4') + 'この端末では記録を保存できません（プライベートブラウジングなど）。ページを閉じると入力内容は失われます。</span>' +
+        '<button data-action="dismiss-banner" class="p-1 rounded-lg hover:bg-rose-100 text-rose-500" aria-label="閉じる">' + icon('x', 'w-3.5 h-3.5') + '</button>' +
+        '</div>';
+    }
+    if (state.readOnly && !state.readOnlyNoticeDismissed) {
+      banners += '<div class="flex items-center justify-between gap-3 bg-amber-50 border border-amber-100 text-amber-700 text-xs px-4 py-2.5 rounded-xl font-medium">' +
+        '<span class="flex items-center gap-2">' + icon('alertTriangle', 'w-4 h-4') + 'このページは閲覧専用で開かれています。今の操作は他の人には保存されません。</span>' +
+        '<button data-action="dismiss-readonly-notice" class="p-1 rounded-lg hover:bg-amber-100 text-amber-600" aria-label="閉じる">' + icon('x', 'w-3.5 h-3.5') + '</button>' +
+        '</div>';
+    }
+    if (state.syncErrorNotice) {
+      banners += '<div class="flex items-center justify-between gap-3 bg-rose-50 border border-rose-100 text-rose-700 text-xs px-4 py-2.5 rounded-xl font-medium">' +
+        '<span class="flex items-center gap-2">' + icon('alertTriangle', 'w-4 h-4') + '家族との同期に失敗しました。この端末には保存されています。時間をおいてもう一度操作してみてください。</span>' +
+        '<button data-action="dismiss-sync-error" class="p-1 rounded-lg hover:bg-rose-100 text-rose-500" aria-label="閉じる">' + icon('x', 'w-3.5 h-3.5') + '</button>' +
+        '</div>';
+    }
+    return banners;
+  }
+
+  function monthNav(compact) {
+    return '' +
+      '<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">' +
+      '<div class="flex items-center space-x-2">' +
+      '<button data-action="prev-month" aria-label="前月" class="p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition">' + icon('chevronLeft', 'w-5 h-5') + '</button>' +
+      '<h2 class="text-xl font-bold text-slate-800">' + state.viewYear + '年 ' + state.viewMonth + '月</h2>' +
+      '<button data-action="next-month" aria-label="次月" class="p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition">' + icon('chevronRight', 'w-5 h-5') + '</button>' +
+      '</div>' +
+      '<div class="flex items-center space-x-2">' +
+      '<button data-action="goto-today" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition">今日へ移動</button>' +
+      (compact ? '' : '<div class="text-xs text-slate-500 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-medium border border-emerald-100">今月通算: <strong class="text-sm">' + computeStats().uniqueDaysThisMonth + '</strong> 日</div>') +
+      '</div>' +
+      '</div>';
+  }
+
+  function buildCalendarCells(year, month) {
+    var firstDayIndex = new Date(year, month - 1, 1).getDay();
+    var total = daysInMonth(year, month);
+    var cells = [];
+    for (var i = 0; i < firstDayIndex; i++) cells.push({ empty: true, key: 'e' + i });
+    for (var d = 1; d <= total; d++) {
+      var key = dateKey(year, month, d);
+      cells.push({ empty: false, key: key, day: d, isToday: key === TODAY_KEY, isFuture: key > TODAY_KEY, isSelected: key === state.selectedDateStr, memberIds: state.gymLogs[key] || [] });
+    }
+    return cells;
+  }
+
+  function renderCalendarGrid() {
+    var cells = buildCalendarCells(state.viewYear, state.viewMonth);
+    var html = cells.map(function (cell) {
+      if (cell.empty) return '<div class="min-h-[72px] sm:min-h-[90px] bg-slate-50/40"></div>';
+      var names = cell.memberIds.map(function (id) {
+        var m = state.members.filter(function (x) { return x.id === id; })[0];
+        return m ? m.name : null;
+      }).filter(Boolean);
+      var badges = cell.memberIds.map(function (id) {
+        var m = state.members.filter(function (x) { return x.id === id; })[0];
+        if (!m) return '';
+        var c = getColor(m.colorId);
+        return '<span title="' + escapeHtml(m.name) + '" class="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium leading-none text-white ' + c.bg + '">' + escapeHtml(m.name.slice(0, 3)) + '</span>';
+      }).join('');
+      var dots = cell.memberIds.map(function (id) {
+        var m = state.members.filter(function (x) { return x.id === id; })[0];
+        if (!m) return '';
+        return '<span class="w-2 h-2 rounded-full ' + getColor(m.colorId).bg + '"></span>';
+      }).join('');
+      var label = state.viewMonth + '月' + cell.day + '日' + (cell.isToday ? '、本日' : '') + (names.length ? '、' + names.join('・') + 'が参加' : '、参加者なし');
+      var cellCls = 'min-h-[72px] sm:min-h-[90px] p-1.5 text-left transition relative flex flex-col justify-between hover:bg-slate-50' +
+        (cell.isSelected ? ' ring-2 ring-emerald-500 ring-inset bg-emerald-50/30' : '') +
+        (cell.isToday ? ' bg-amber-50/30' : '') + (cell.isFuture ? ' text-slate-400' : '');
+      var numCls = 'inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ' + (cell.isToday ? 'bg-amber-500 text-white font-bold shadow-sm' : 'text-slate-700');
+      return '<button data-action="select-date" data-date="' + cell.key + '" aria-pressed="' + cell.isSelected + '" aria-label="' + escapeHtml(label) + '" class="' + cellCls + '">' +
+        '<div class="flex items-center justify-between">' +
+        '<span class="' + numCls + '">' + cell.day + '</span>' +
+        (cell.memberIds.length ? '<span class="text-[10px] font-bold text-slate-400 sm:hidden">' + cell.memberIds.length + '人</span>' : '') +
+        '</div>' +
+        '<div class="mt-1 flex flex-wrap gap-1 content-end">' + badges +
+        '<div class="sm:hidden flex flex-wrap gap-0.5 mt-0.5">' + dots + '</div>' +
+        '</div>' +
+        '</button>';
+    }).join('');
+
+    return '' +
+      '<div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">' +
+      '<div class="grid grid-cols-7 border-b border-slate-100 bg-slate-50/70 text-center text-xs font-semibold py-2.5">' +
+      '<span class="text-rose-500">日</span><span class="text-slate-600">月</span><span class="text-slate-600">火</span><span class="text-slate-600">水</span><span class="text-slate-600">木</span><span class="text-slate-600">金</span><span class="text-blue-500">土</span>' +
+      '</div>' +
+      '<div class="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-100">' + html + '</div>' +
+      '</div>';
+  }
+
+  function renderDetailPanel() {
+    var parts = state.selectedDateStr.split('-').map(Number);
+    var y = parts[0], m = parts[1], d = parts[2];
+    var wd = WEEKDAY_JA[new Date(y, m - 1, d).getDay()];
+    var attendees = state.gymLogs[state.selectedDateStr] || [];
+    var isFuture = state.selectedDateStr > TODAY_KEY;
+
+    var body;
+    if (!state.members.length) {
+      body = '<p class="text-center text-sm text-slate-500 py-8">メンバーがいません。「家族メンバー」タブから追加してください。</p>';
+    } else {
+      var blocked = isFuture || state.readOnly;
+      var buttons = state.members.map(function (mem) {
+        var isOn = attendees.indexOf(mem.id) !== -1;
+        var c = getColor(mem.colorId);
+        var btnCls = 'p-3 rounded-xl border-2 transition text-left flex items-center justify-between ' +
+          (isOn ? c.border + ' ' + c.lightBg + ' shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 opacity-60') +
+          (blocked ? ' cursor-not-allowed opacity-40' : '');
+        var checkCls = 'w-6 h-6 rounded-full flex items-center justify-center border transition ' + (isOn ? c.bg + ' text-white border-transparent' : 'border-slate-300 bg-white text-transparent');
+        return '<button data-action="toggle-attendance" data-date="' + state.selectedDateStr + '" data-member="' + mem.id + '" aria-pressed="' + isOn + '"' + (blocked ? ' disabled aria-disabled="true"' : '') + ' class="' + btnCls + '">' +
+          '<div class="flex items-center space-x-2.5 truncate"><span class="w-3 h-3 rounded-full flex-shrink-0 ' + c.bg + '"></span><span class="font-bold text-sm text-slate-800 truncate">' + escapeHtml(mem.name) + '</span></div>' +
+          '<div class="' + checkCls + '">' + icon('check', 'w-3.5 h-3.5 stroke-[3]') + '</div>' +
+          '</button>';
+      }).join('');
+      body = '<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">' + buttons + '</div>' +
+        (isFuture ? '<p class="text-xs text-slate-400 mt-3">未来の日付には記録を付けられません。</p>' : '');
+    }
+
+    return '' +
+      '<div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">' +
+      '<div class="flex items-center justify-between pb-3 border-b border-slate-100">' +
+      '<div class="flex items-center space-x-2">' +
+      '<div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">' + icon('userCheck', 'w-4 h-4') + '</div>' +
+      '<div><h3 class="font-bold text-slate-800 text-sm sm:text-base">' + m + '月' + d + '日（' + wd + '）のジム記録</h3><p class="text-xs text-slate-500">タップして参加メンバーを切り替えられます</p></div>' +
+      '</div>' +
+      '<span class="text-xs px-2.5 py-1 bg-slate-100 rounded-full font-semibold text-slate-600">参加: ' + attendees.length + '人</span>' +
+      '</div>' +
+      body +
+      '</div>';
+  }
+
+  function renderCalendarTab() {
+    return '<div class="space-y-6">' + renderStorageBanner() + monthNav(false) + renderCalendarGrid() + renderDetailPanel() + '</div>';
+  }
+
+  function renderTrendChart(trend) {
+    var max = Math.max(1, Math.max.apply(null, trend.map(function (t) { return t.total; })));
+    var cols = trend.map(function (t) {
+      var pct = Math.max(4, Math.round((t.total / max) * 100));
+      var barCls = t.isCurrent ? 'bg-emerald-200 border-2 border-dashed border-emerald-500' : 'bg-emerald-500';
+      return '<div class="flex-1 flex flex-col items-center justify-end h-32 gap-1.5">' +
+        '<span class="text-xs font-bold text-slate-500">' + t.total + '</span>' +
+        '<div class="w-full flex items-end h-full"><div class="w-full rounded-t-lg ' + barCls + '" style="height:' + pct + '%" title="' + t.year + '年' + t.month + '月: ' + t.total + '回"></div></div>' +
+        '<span class="text-[11px] font-medium ' + (t.isCurrent ? 'text-emerald-600' : 'text-slate-400') + '">' + t.month + '月' + (t.isCurrent ? '※' : '') + '</span>' +
+        '</div>';
+    }).join('');
+    return '<div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">' +
+      '<h3 class="font-bold text-slate-900 text-base flex items-center space-x-2">' + icon('trendingUp', 'w-5 h-5 text-emerald-500') + '<span>直近6か月の家族合計推移</span></h3>' +
+      '<p class="text-xs text-slate-500 mt-1">延べ参加人数の合計（※は進行中の今月）</p>' +
+      '<div class="flex items-end gap-3 mt-5">' + cols + '</div>' +
+      '</div>';
+  }
+
+  function renderStatsTab() {
+    var stats = computeStats();
+    var tiles = '' +
+      '<div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex items-center space-x-4">' +
+      '<div class="p-3 bg-emerald-50 text-emerald-600 rounded-xl">' + icon('flame', 'w-6 h-6') + '</div>' +
+      '<div><p class="text-xs text-slate-500 font-medium">' + state.viewMonth + '月の家族平均</p>' +
+      '<p class="text-2xl font-black text-slate-900">' + fmt1(stats.familyAvgThisMonth) + ' <span class="text-sm font-normal text-slate-500">回/人</span></p></div>' +
+      '</div>' +
+      '<div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex items-center space-x-4">' +
+      '<div class="p-3 bg-blue-50 text-blue-600 rounded-xl">' + icon('trendingUp', 'w-6 h-6') + '</div>' +
+      '<div><p class="text-xs text-slate-500 font-medium">家族の月平均（完了月のみ）</p>' +
+      '<p class="text-2xl font-black text-slate-900">' + (stats.familyAvgOverall === null ? 'ー' : fmt1(stats.familyAvgOverall) + ' <span class="text-sm font-normal text-slate-500">回/人</span>') + '</p></div>' +
+      '</div>' +
+      '<div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex items-center space-x-4">' +
+      '<div class="p-3 bg-amber-50 text-amber-600 rounded-xl">' + icon('dumbbell', 'w-6 h-6') + '</div>' +
+      '<div><p class="text-xs text-slate-500 font-medium">' + state.viewMonth + '月 延べ回数</p>' +
+      '<p class="text-2xl font-black text-slate-900">' + stats.totalVisitsThisMonth + ' <span class="text-sm font-normal text-slate-500">回</span></p></div>' +
+      '</div>';
+
+    var rows = state.members.length ? state.members.map(function (mem) {
+      var thisMonth = stats.monthlyCounts[mem.id] || 0;
+      var goal = mem.goal || 8;
+      var pct = Math.min(100, Math.round((thisMonth / goal) * 100));
+      var c = getColor(mem.colorId);
+      var avgInfo = stats.memberAverages[mem.id];
+      var avgHtml = avgInfo.value === null
+        ? '<p class="text-xs text-slate-400 font-medium mt-0.5">今月から記録開始</p>'
+        : '<p class="text-lg font-black ' + c.text + '">' + fmt1(avgInfo.value) + ' <span class="text-xs font-normal text-slate-500">回/月</span></p>';
+      return '' +
+        '<div class="py-4 space-y-2.5">' +
+        '<div class="flex items-center justify-between">' +
+        '<div class="flex items-center space-x-3">' +
+        '<span class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs text-white ' + c.bg + '">' + escapeHtml(mem.name.charAt(0)) + '</span>' +
+        '<div><span class="font-bold text-slate-800">' + escapeHtml(mem.name) + '</span>' +
+        '<div class="flex items-center space-x-2 text-xs text-slate-500"><span>目標: 月' + goal + '回</span><span>・</span><span class="' + c.text + ' font-semibold">達成率: ' + pct + '%</span></div>' +
+        '</div></div>' +
+        '<div class="flex items-center space-x-6 text-right">' +
+        '<div><p class="text-[10px] text-slate-400 font-medium">当月回数</p><p class="text-lg font-black text-slate-900">' + thisMonth + ' <span class="text-xs font-normal text-slate-500">回</span></p></div>' +
+        '<div><p class="text-[10px] text-slate-400 font-medium">月あたり平均</p>' + avgHtml + '</div>' +
+        '</div>' +
+        '</div>' +
+        '<div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden"><div class="h-full rounded-full transition-all duration-500 ' + c.bg + '" style="width:' + pct + '%"></div></div>' +
+        '</div>';
+    }).join('') : '<p class="text-center text-sm text-slate-500 py-8">メンバーがいません。「家族メンバー」タブから追加してください。</p>';
+
+    return '<div class="space-y-6">' +
+      renderStorageBanner() +
+      monthNav(true) +
+      '<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">' + tiles + '</div>' +
+      renderTrendChart(stats.trend) +
+      '<div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">' +
+      '<div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">' +
+      '<div><h3 class="font-bold text-slate-900 text-lg flex items-center space-x-2">' + icon('award', 'w-5 h-5 text-amber-500') + '<span>メンバー別 ジム利用状況・月平均</span></h3>' +
+      '<p class="text-xs text-slate-500">月平均は各メンバーが記録を開始してから完了した月のみで算出しています（当月・記録0の月も含みます）</p></div>' +
+      '</div>' +
+      rows +
+      '</div>' +
+      '<div class="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-5 text-white shadow-md flex items-center justify-between">' +
+      '<div class="space-y-1"><h4 class="font-bold text-base flex items-center space-x-2">' + icon('flame', 'w-5 h-5 text-amber-300') + '<span>家族の継続ポイント</span></h4>' +
+      '<p class="text-xs text-emerald-50 max-w-xl">週に2回通うと月あたり約8〜9回になります。お互いのペースを尊重しながら、無理なく継続していきましょう！</p></div>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function swatchRow(containerId, selectedId, excludeId, actionName) {
+    var used = usedColorIds(excludeId);
+    var anyFree = COLOR_PALETTES.some(function (c) { return !used[c.id]; });
+    var swatches = COLOR_PALETTES.map(function (c) {
+      var isUsed = !!used[c.id];
+      var blocked = isUsed && anyFree;
+      var isSel = c.id === selectedId;
+      var cls = 'w-7 h-7 rounded-full ' + c.bg + ' transition transform ' +
+        (isSel ? 'ring-2 ring-offset-2 ring-slate-800 scale-110' : blocked ? 'opacity-20 cursor-not-allowed' : 'opacity-70 hover:opacity-100');
+      return '<button type="button" data-action="' + actionName + '" data-color="' + c.id + '" aria-pressed="' + isSel + '" aria-label="' + c.name + (blocked ? '（使用中）' : '') + '" class="' + cls + '"' + (blocked ? ' disabled' : '') + '></button>';
+    }).join('');
+    return '<div class="flex items-center space-x-2 pt-1" id="' + containerId + '">' + swatches + '</div>' +
+      (anyFree ? '' : '<p class="text-[11px] text-slate-400 mt-2">色の種類を使い切ったため、他のメンバーと同じ色を選べます。</p>');
+  }
+
+  function renderAddMemberForm() {
+    if (state.readOnly) {
+      return '<div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">' +
+        '<h3 class="font-bold text-slate-900 text-base mb-1 flex items-center space-x-2">' + icon('plus', 'w-5 h-5 text-slate-400') + '<span>新しい家族メンバーを追加</span></h3>' +
+        '<p class="text-xs text-slate-500">閲覧専用のため、この画面からは追加できません。</p>' +
+        '</div>';
+    }
+    var am = state.addMember;
+    return '' +
+      '<div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">' +
+      '<h3 class="font-bold text-slate-900 text-base mb-1 flex items-center space-x-2">' + icon('plus', 'w-5 h-5 text-emerald-600') + '<span>新しい家族メンバーを追加</span></h3>' +
+      '<p class="text-xs text-slate-500 mb-4">名前、表示カラー、月間目標回数を設定できます</p>' +
+      '<form data-form="add-member" class="space-y-4">' +
+      '<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">' +
+      '<div><label class="block text-xs font-medium text-slate-700 mb-1" for="add-member-name">お名前・ニックネーム</label>' +
+      '<input id="add-member-name" type="text" placeholder="例: お兄ちゃん" maxlength="12" value="' + escapeHtml(am.name) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>' +
+      '<div><label class="block text-xs font-medium text-slate-700 mb-1" for="add-member-goal">月間目標回数</label>' +
+      '<div class="flex items-center space-x-2"><input id="add-member-goal" type="number" min="1" max="31" value="' + escapeHtml(String(am.goal)) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"><span class="text-xs text-slate-500 font-medium">回</span></div></div>' +
+      '<div><label class="block text-xs font-medium text-slate-700 mb-1">テーマカラー</label>' + swatchRow('add-color-picker', am.colorId, null, 'add-pick-color') + '</div>' +
+      '</div>' +
+      (am.error ? '<p class="text-xs text-rose-600 font-semibold">' + escapeHtml(am.error) + '</p>' : '') +
+      '<div class="flex justify-end pt-2"><button type="submit" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition shadow-sm flex items-center space-x-1.5">' + icon('plus', 'w-4 h-4') + '<span>メンバーを追加</span></button></div>' +
+      '</form>' +
+      '</div>';
+  }
+
+  function renderRoster() {
+    var stats = computeStats();
+    var items = state.members.length ? state.members.map(function (mem) {
+      var count = stats.monthlyCounts[mem.id] || 0;
+      var c = getColor(mem.colorId);
+      return '' +
+        '<div class="p-4 rounded-xl border border-slate-200 flex items-center justify-between hover:border-slate-300 transition">' +
+        '<div class="flex items-center space-x-3">' +
+        '<div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-sm ' + c.bg + '">' + escapeHtml(mem.name.charAt(0)) + '</div>' +
+        '<div><h4 class="font-bold text-slate-800">' + escapeHtml(mem.name) + '</h4><p class="text-xs text-slate-500">目標: 月 ' + mem.goal + ' 回 • 今月: ' + count + ' 回</p></div>' +
+        '</div>' +
+        (state.readOnly ? '' :
+        '<div class="flex items-center">' +
+        '<button data-action="open-edit-member" data-member="' + mem.id + '" class="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition" aria-label="' + escapeHtml(mem.name) + 'を編集" title="編集">' + icon('edit3', 'w-4 h-4') + '</button>' +
+        '<button data-action="request-delete-member" data-member="' + mem.id + '" class="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition" aria-label="' + escapeHtml(mem.name) + 'を削除" title="メンバーを削除">' + icon('trash2', 'w-4 h-4') + '</button>' +
+        '</div>') +
+        '</div>';
+    }).join('') : '<p class="text-center text-sm text-slate-500 py-8 sm:col-span-2">まだ家族メンバーが登録されていません。上のフォームから追加しましょう。</p>';
+
+    return '<div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">' +
+      '<h3 class="font-bold text-slate-900 text-base mb-4 flex items-center space-x-2">' + icon('users', 'w-5 h-5 text-slate-600') + '<span>登録中の家族 (' + state.members.length + '人)</span></h3>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">' + items + '</div>' +
+      '</div>';
+  }
+
+  function renderMembersTab() {
+    return '<div class="space-y-6">' + renderStorageBanner() + renderAddMemberForm() + renderRoster() + '</div>';
+  }
+
+  function renderEditModal() {
+    if (!state.editing) return '';
+    var ed = state.editing;
+    return '' +
+      '<div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-5 z-50" data-action="cancel-edit">' +
+      '<div class="bg-white rounded-2xl p-6 shadow-xl w-full max-w-sm border border-slate-200" data-action="noop" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">' +
+      '<div class="flex items-center justify-between mb-4"><h3 id="edit-modal-title" class="text-base font-bold text-slate-800">メンバーを編集</h3>' +
+      '<button data-action="cancel-edit" class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400" aria-label="閉じる">' + icon('x', 'w-4 h-4') + '</button></div>' +
+      '<form data-form="edit-member">' +
+      '<label class="block text-xs font-medium text-slate-700 mb-1" for="edit-member-name">お名前・ニックネーム</label>' +
+      '<input id="edit-member-name" type="text" maxlength="12" value="' + escapeHtml(ed.name) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">' +
+      '<div class="h-3"></div>' +
+      '<label class="block text-xs font-medium text-slate-700 mb-1" for="edit-member-goal">月間目標回数</label>' +
+      '<div class="flex items-center space-x-2"><input id="edit-member-goal" type="number" min="1" max="31" value="' + escapeHtml(String(ed.goal)) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"><span class="text-xs text-slate-500 font-medium">回</span></div>' +
+      '<div class="h-3"></div>' +
+      '<label class="block text-xs font-medium text-slate-700 mb-1">テーマカラー</label>' + swatchRow('edit-color-picker', ed.colorId, ed.id, 'edit-pick-color') +
+      (ed.error ? '<p class="text-xs text-rose-600 font-semibold mt-2">' + escapeHtml(ed.error) + '</p>' : '') +
+      '<div class="flex justify-end gap-2 mt-5">' +
+      '<button type="button" data-action="cancel-edit" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition">キャンセル</button>' +
+      '<button type="submit" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition">保存する</button>' +
+      '</div>' +
+      '</form>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderDeleteModal() {
+    if (!state.pendingDeleteId) return '';
+    var mem = state.members.filter(function (m) { return m.id === state.pendingDeleteId; })[0];
+    if (!mem) return '';
+    return '' +
+      '<div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-5 z-50" data-action="cancel-delete">' +
+      '<div class="bg-white rounded-2xl p-6 shadow-xl w-full max-w-sm border border-slate-200" data-action="noop" role="alertdialog" aria-modal="true" aria-labelledby="delete-modal-title">' +
+      '<div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center mb-3">' + icon('alertTriangle', 'w-5 h-5') + '</div>' +
+      '<h3 id="delete-modal-title" class="text-base font-bold text-slate-800">「' + escapeHtml(mem.name) + '」を削除しますか？</h3>' +
+      '<p class="text-xs text-slate-500 mt-2">このメンバーの参加記録もすべて削除されます。この操作は取り消せません。</p>' +
+      '<div class="flex justify-end gap-2 mt-5">' +
+      '<button id="confirm-cancel-btn" data-action="cancel-delete" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition">キャンセル</button>' +
+      '<button data-action="confirm-delete" class="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold transition">削除する</button>' +
+      '</div>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function render() {
+    var main = state.activeTab === 'calendar' ? renderCalendarTab() : state.activeTab === 'stats' ? renderStatsTab() : renderMembersTab();
+    document.getElementById('app').innerHTML =
+      '<div class="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans pb-12">' +
+      renderHeader() +
+      '<main class="max-w-4xl w-full mx-auto px-4 py-6 flex-1" role="tabpanel">' + main + '</main>' +
+      '</div>' +
+      renderEditModal() + renderDeleteModal();
+    if (state.focusTarget) {
+      var el = document.getElementById(state.focusTarget);
+      if (el) el.focus();
+      state.focusTarget = null;
+    }
+  }
+
+  /* =========================================================
+   * アクション
+   * ========================================================= */
+  function toggleAttendance(dateStr, memberId) {
+    if (dateStr > TODAY_KEY || state.readOnly) return;
+    var list = state.gymLogs[dateStr] || [];
+    var has = list.indexOf(memberId) !== -1;
+    var next = has ? list.filter(function (id) { return id !== memberId; }) : list.concat([memberId]);
+    if (next.length) state.gymLogs[dateStr] = next; else delete state.gymLogs[dateStr];
+    syncState();
+  }
+  function deleteMember(id) {
+    state.members = state.members.filter(function (m) { return m.id !== id; });
+    Object.keys(state.gymLogs).forEach(function (k) {
+      var filtered = state.gymLogs[k].filter(function (mid) { return mid !== id; });
+      if (filtered.length) state.gymLogs[k] = filtered; else delete state.gymLogs[k];
+    });
+    syncState();
+  }
+  function selectSwatch(containerId, btn, target) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    var swatches = container.querySelectorAll('button');
+    for (var i = 0; i < swatches.length; i++) {
+      swatches[i].classList.remove('ring-2', 'ring-offset-2', 'ring-slate-800', 'scale-110');
+      if (!swatches[i].disabled) swatches[i].classList.add('opacity-70');
+      swatches[i].setAttribute('aria-pressed', 'false');
+    }
+    btn.classList.remove('opacity-70', 'opacity-20');
+    btn.classList.add('ring-2', 'ring-offset-2', 'ring-slate-800', 'scale-110');
+    btn.setAttribute('aria-pressed', 'true');
+    target.colorId = btn.dataset.color;
+  }
+
+  var handlers = {
+    'prev-month': function () { var p = addMonths(state.viewYear, state.viewMonth, -1); state.viewYear = p.y; state.viewMonth = p.m; render(); },
+    'next-month': function () { var n = addMonths(state.viewYear, state.viewMonth, 1); state.viewYear = n.y; state.viewMonth = n.m; render(); },
+    'goto-today': function () { state.viewYear = TODAY.y; state.viewMonth = TODAY.m; state.selectedDateStr = TODAY_KEY; render(); },
+    'set-tab': function (el) { state.activeTab = el.dataset.tab; render(); },
+    'select-date': function (el) { state.selectedDateStr = el.dataset.date; render(); },
+    'toggle-attendance': function (el) { toggleAttendance(el.dataset.date, el.dataset.member); render(); },
+    'add-pick-color': function (el) { if (!el.disabled) selectSwatch('add-color-picker', el, state.addMember); },
+    'edit-pick-color': function (el) { if (state.editing && !el.disabled) selectSwatch('edit-color-picker', el, state.editing); },
+    'open-edit-member': function (el) {
+      var m = state.members.filter(function (x) { return x.id === el.dataset.member; })[0];
+      if (!m) return;
+      state.editing = { id: m.id, name: m.name, goal: m.goal, colorId: m.colorId, error: '' };
+      state.focusTarget = 'edit-member-name';
+      render();
+    },
+    'cancel-edit': function () { state.editing = null; render(); },
+    'request-delete-member': function (el) { state.pendingDeleteId = el.dataset.member; state.focusTarget = 'confirm-cancel-btn'; render(); },
+    'cancel-delete': function () { state.pendingDeleteId = null; render(); },
+    'confirm-delete': function () { deleteMember(state.pendingDeleteId); state.pendingDeleteId = null; render(); },
+    'dismiss-banner': function () { state.bannerDismissed = true; render(); },
+    'dismiss-readonly-notice': function () { state.readOnlyNoticeDismissed = true; render(); },
+    'dismiss-sync-error': function () { state.syncErrorNotice = false; render(); },
+    'noop': function () {}
+  };
+
+  var formHandlers = {
+    'add-member': function () {
+      var nameEl = document.getElementById('add-member-name');
+      var goalEl = document.getElementById('add-member-goal');
+      var name = nameEl.value.trim();
+      var err = validateMemberName(name, null);
+      if (err) {
+        state.addMember.name = nameEl.value;
+        state.addMember.goal = clampGoal(goalEl.value);
+        state.addMember.error = err;
+        state.focusTarget = 'add-member-name';
+        render();
+        return;
+      }
+      state.members.push({ id: uuid(), name: name, colorId: state.addMember.colorId || pickDefaultColor(null), goal: clampGoal(goalEl.value), createdAt: TODAY_KEY });
+      state.addMember = { name: '', goal: 8, colorId: pickDefaultColor(null), error: '' };
+      syncState();
+      state.focusTarget = 'add-member-name';
+      render();
+    },
+    'edit-member': function () {
+      var nameEl = document.getElementById('edit-member-name');
+      var goalEl = document.getElementById('edit-member-goal');
+      var name = nameEl.value.trim();
+      var err = validateMemberName(name, state.editing.id);
+      if (err) {
+        state.editing.name = nameEl.value;
+        state.editing.goal = clampGoal(goalEl.value);
+        state.editing.error = err;
+        render();
+        return;
+      }
+      var m = state.members.filter(function (x) { return x.id === state.editing.id; })[0];
+      if (m) { m.name = name; m.goal = clampGoal(goalEl.value); m.colorId = state.editing.colorId; }
+      state.editing = null;
+      syncState();
+      render();
+    }
+  };
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-action]');
+    if (!el) return;
+    var fn = handlers[el.dataset.action];
+    if (fn) fn(el, e);
+  });
+  document.addEventListener('submit', function (e) {
+    var form = e.target.closest('form[data-form]');
+    if (!form) return;
+    e.preventDefault();
+    var fn = formHandlers[form.dataset.form];
+    if (fn) fn(form, e);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (state.editing) { state.editing = null; render(); }
+    else if (state.pendingDeleteId) { state.pendingDeleteId = null; render(); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
