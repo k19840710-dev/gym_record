@@ -680,16 +680,18 @@
   function swatchRow(containerId, selectedId, excludeId, actionName) {
     var used = usedColorIds(excludeId);
     var anyFree = COLOR_PALETTES.some(function (c) { return !used[c.id]; });
+    var selectedColor = getColor(selectedId);
     var swatches = COLOR_PALETTES.map(function (c) {
       var isUsed = !!used[c.id];
       var blocked = isUsed && anyFree;
       var isSel = c.id === selectedId;
       var cls = 'w-7 h-7 rounded-full ' + c.bg + ' transition transform ' +
-        (isSel ? 'ring-2 ring-offset-2 ring-slate-800 scale-110' : blocked ? 'opacity-20 cursor-not-allowed' : 'opacity-70 hover:opacity-100');
+        (isSel ? 'ring-2 ring-offset-2 ring-emerald-600 scale-110 shadow-sm' : blocked ? 'opacity-20 cursor-not-allowed' : 'opacity-60 hover:opacity-90');
       return '<button type="button" data-action="' + actionName + '" data-color="' + c.id + '" aria-pressed="' + isSel + '" aria-label="' + c.name + (blocked ? '（使用中）' : '') + '" class="' + cls + '"' + (blocked ? ' disabled' : '') + '></button>';
     }).join('');
     return '<div class="flex items-center space-x-2 pt-1" id="' + containerId + '">' + swatches + '</div>' +
-      (anyFree ? '' : '<p class="text-[11px] text-slate-400 mt-2">色の種類を使い切ったため、他のメンバーと同じ色を選べます。</p>');
+      '<p id="' + containerId + '-label" class="text-[11px] font-semibold text-slate-500 mt-1.5">' + escapeHtml(selectedColor.name) + '</p>' +
+      (anyFree ? '' : '<p class="text-[11px] text-slate-400 mt-1">色の種類を使い切ったため、他のメンバーと同じ色を選べます。</p>');
   }
 
   function renderAddMemberForm() {
@@ -703,17 +705,17 @@
     return '' +
       '<div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">' +
       '<h3 class="font-bold text-slate-900 text-base mb-1 flex items-center space-x-2">' + icon('plus', 'w-5 h-5 text-emerald-600') + '<span>新しい家族メンバーを追加</span></h3>' +
-      '<p class="text-xs text-slate-500 mb-4">名前、表示カラー、月間目標回数を設定できます</p>' +
+      '<p class="text-[11px] text-slate-400 mb-4">名前、メンバーカラー、月間目標を設定できます</p>' +
       '<form data-form="add-member" class="space-y-4">' +
       '<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">' +
-      '<div><label class="block text-xs font-medium text-slate-700 mb-1" for="add-member-name">お名前・ニックネーム</label>' +
+      '<div><label class="block text-xs font-bold text-slate-800 mb-1.5" for="add-member-name">お名前・ニックネーム</label>' +
       '<input id="add-member-name" type="text" placeholder="例: お兄ちゃん" maxlength="12" value="' + escapeHtml(am.name) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>' +
-      '<div><label class="block text-xs font-medium text-slate-700 mb-1" for="add-member-goal">月間目標回数</label>' +
-      '<div class="flex items-center space-x-2"><input id="add-member-goal" type="number" min="1" max="31" value="' + escapeHtml(String(am.goal)) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"><span class="text-xs text-slate-500 font-medium">回</span></div></div>' +
-      '<div><label class="block text-xs font-medium text-slate-700 mb-1">テーマカラー</label>' + swatchRow('add-color-picker', am.colorId, null, 'add-pick-color') + '</div>' +
+      '<div><label class="block text-xs font-bold text-slate-800 mb-1.5" for="add-member-goal">月間目標</label>' +
+      '<div class="flex items-center space-x-2"><input id="add-member-goal" type="number" min="1" max="31" value="' + escapeHtml(String(am.goal)) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"><span class="text-xs text-slate-500 font-semibold whitespace-nowrap">回 / 月</span></div></div>' +
+      '<div><label class="block text-xs font-bold text-slate-800 mb-1.5">メンバーカラー</label>' + swatchRow('add-color-picker', am.colorId, null, 'add-pick-color') + '</div>' +
       '</div>' +
       (am.error ? '<p class="text-xs text-rose-600 font-semibold">' + escapeHtml(am.error) + '</p>' : '') +
-      '<div class="flex justify-end pt-2"><button type="submit" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition shadow-sm flex items-center space-x-1.5">' + icon('plus', 'w-4 h-4') + '<span>メンバーを追加</span></button></div>' +
+      '<div class="flex justify-end pt-2"><button type="submit" class="w-full sm:w-auto sm:px-10 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition shadow-sm flex items-center justify-center space-x-1.5">' + icon('plus', 'w-4 h-4') + '<span>メンバーを追加</span></button></div>' +
       '</form>' +
       '</div>';
   }
@@ -738,7 +740,7 @@
     }).join('') : '<p class="text-center text-sm text-slate-500 py-8 sm:col-span-2">まだ家族メンバーが登録されていません。上のフォームから追加しましょう。</p>';
 
     return '<div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">' +
-      '<h3 class="font-bold text-slate-900 text-base mb-4 flex items-center space-x-2">' + icon('users', 'w-5 h-5 text-slate-600') + '<span>登録中の家族 (' + state.members.length + '人)</span></h3>' +
+      '<h3 class="font-bold text-slate-900 text-base mb-4 flex items-center space-x-2">' + icon('users', 'w-5 h-5 text-slate-600') + '<span>家族メンバー ' + state.members.length + '人</span></h3>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">' + items + '</div>' +
       '</div>';
   }
@@ -756,13 +758,13 @@
       '<div class="flex items-center justify-between mb-4"><h3 id="edit-modal-title" class="text-base font-bold text-slate-800">メンバーを編集</h3>' +
       '<button data-action="cancel-edit" class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400" aria-label="閉じる">' + icon('x', 'w-4 h-4') + '</button></div>' +
       '<form data-form="edit-member">' +
-      '<label class="block text-xs font-medium text-slate-700 mb-1" for="edit-member-name">お名前・ニックネーム</label>' +
+      '<label class="block text-xs font-bold text-slate-800 mb-1.5" for="edit-member-name">お名前・ニックネーム</label>' +
       '<input id="edit-member-name" type="text" maxlength="12" value="' + escapeHtml(ed.name) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">' +
       '<div class="h-3"></div>' +
-      '<label class="block text-xs font-medium text-slate-700 mb-1" for="edit-member-goal">月間目標回数</label>' +
-      '<div class="flex items-center space-x-2"><input id="edit-member-goal" type="number" min="1" max="31" value="' + escapeHtml(String(ed.goal)) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"><span class="text-xs text-slate-500 font-medium">回</span></div>' +
+      '<label class="block text-xs font-bold text-slate-800 mb-1.5" for="edit-member-goal">月間目標</label>' +
+      '<div class="flex items-center space-x-2"><input id="edit-member-goal" type="number" min="1" max="31" value="' + escapeHtml(String(ed.goal)) + '" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"><span class="text-xs text-slate-500 font-semibold whitespace-nowrap">回 / 月</span></div>' +
       '<div class="h-3"></div>' +
-      '<label class="block text-xs font-medium text-slate-700 mb-1">テーマカラー</label>' + swatchRow('edit-color-picker', ed.colorId, ed.id, 'edit-pick-color') +
+      '<label class="block text-xs font-bold text-slate-800 mb-1.5">メンバーカラー</label>' + swatchRow('edit-color-picker', ed.colorId, ed.id, 'edit-pick-color') +
       (ed.error ? '<p class="text-xs text-rose-600 font-semibold mt-2">' + escapeHtml(ed.error) + '</p>' : '') +
       '<div class="flex justify-end gap-2 mt-5">' +
       '<button type="button" data-action="cancel-edit" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition">キャンセル</button>' +
@@ -830,14 +832,16 @@
     if (!container) return;
     var swatches = container.querySelectorAll('button');
     for (var i = 0; i < swatches.length; i++) {
-      swatches[i].classList.remove('ring-2', 'ring-offset-2', 'ring-slate-800', 'scale-110');
-      if (!swatches[i].disabled) swatches[i].classList.add('opacity-70');
+      swatches[i].classList.remove('ring-2', 'ring-offset-2', 'ring-emerald-600', 'scale-110', 'shadow-sm');
+      if (!swatches[i].disabled) swatches[i].classList.add('opacity-60');
       swatches[i].setAttribute('aria-pressed', 'false');
     }
-    btn.classList.remove('opacity-70', 'opacity-20');
-    btn.classList.add('ring-2', 'ring-offset-2', 'ring-slate-800', 'scale-110');
+    btn.classList.remove('opacity-60', 'opacity-20');
+    btn.classList.add('ring-2', 'ring-offset-2', 'ring-emerald-600', 'scale-110', 'shadow-sm');
     btn.setAttribute('aria-pressed', 'true');
     target.colorId = btn.dataset.color;
+    var label = document.getElementById(containerId + '-label');
+    if (label) label.textContent = getColor(btn.dataset.color).name;
   }
 
   var handlers = {
