@@ -535,10 +535,10 @@
         return '<span class="w-2 h-2 rounded-full ' + getColor(m.colorId).bg + '"></span>';
       }).join('');
       var label = state.viewMonth + '月' + cell.day + '日' + (cell.isToday ? '、本日' : '') + (names.length ? '、' + names.join('・') + 'が参加' : '、参加者なし');
-      var cellCls = 'min-h-[72px] sm:min-h-[90px] p-1.5 text-left transition relative flex flex-col justify-between hover:bg-slate-50 ' + borderCls +
+      var cellCls = 'min-h-[72px] sm:min-h-[90px] p-2 text-left transition relative flex flex-col items-start justify-between hover:bg-slate-50 ' + borderCls +
         (cell.isSelected ? ' ring-2 ring-emerald-500 ring-inset bg-emerald-50/30' : '') +
         (cell.isToday ? ' bg-amber-50/40' : '') + (cell.isFuture ? ' text-slate-400' : '') + cornerCls;
-      var numCls = 'self-end inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full text-sm font-bold ' + (cell.isToday ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-800');
+      var numCls = 'inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full text-sm font-bold ' + (cell.isToday ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-800');
       return '<button data-action="select-date" data-date="' + cell.key + '" aria-pressed="' + cell.isSelected + '" aria-label="' + escapeHtml(label) + '" class="' + cellCls + '">' +
         '<span class="' + numCls + '">' + cell.day + '</span>' +
         '<div class="mt-1 flex flex-wrap gap-1 content-end">' + badges +
