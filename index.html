@@ -404,21 +404,25 @@
   function renderHeader() {
     function tabBtn(key, iconName, label) {
       var active = state.activeTab === key;
-      return '<button data-action="set-tab" data-tab="' + key + '" role="tab" aria-selected="' + active + '" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ' +
+      return '<button data-action="set-tab" data-tab="' + key + '" role="tab" aria-selected="' + active + '" class="flex-1 sm:flex-initial flex items-center justify-center sm:justify-start space-x-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ' +
         (active ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-600 hover:text-slate-900') + '">' +
         icon(iconName, 'w-4 h-4') + '<span>' + label + '</span></button>';
     }
+    /* スマホでは横幅が足りず、タイトルやタブのラベルが1文字ずつ折り返される
+     * 問題があったため、狭い画面ではヘッダーを縦積み（タイトル行→タブ行を
+     * 全幅3等分）にし、情報量も減らす（キャッチコピーは sm: 以上でのみ表示）。 */
     return '' +
       '<header class="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">' +
-      '<div class="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between">' +
-      '<div class="flex items-center space-x-2.5">' +
-      '<div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white shadow-md shadow-emerald-100">' + icon('dumbbell', 'w-5 h-5') + '</div>' +
-      '<div><h1 class="text-lg font-bold leading-tight text-slate-900 flex items-center gap-2">家族のジム通いログ' +
-      (state.readOnly ? '<span class="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">閲覧専用</span>' : '') +
-      (!state.readOnly && state.fbSynced ? '<span class="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>同期中</span>' : '') +
-      '</h1><p class="text-xs text-slate-500">みんなで目指す健康習慣</p></div>' +
+      '<div class="max-w-4xl mx-auto px-4 py-3 sm:py-3.5 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">' +
+      '<div class="flex items-center space-x-2.5 min-w-0">' +
+      '<div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white shadow-md shadow-emerald-100 flex-shrink-0">' + icon('dumbbell', 'w-5 h-5') + '</div>' +
+      '<div class="min-w-0"><h1 class="text-base sm:text-lg font-bold leading-tight text-slate-900 flex flex-wrap items-center gap-1.5 sm:gap-2">' +
+      '<span class="whitespace-nowrap">家族のジム通いログ</span>' +
+      (state.readOnly ? '<span class="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full whitespace-nowrap">閲覧専用</span>' : '') +
+      (!state.readOnly && state.fbSynced ? '<span class="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1 whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>同期中</span>' : '') +
+      '</h1><p class="hidden sm:block text-xs text-slate-500">みんなで目指す健康習慣</p></div>' +
       '</div>' +
-      '<nav role="tablist" aria-label="表示切り替え" class="flex bg-slate-100 p-1 rounded-xl">' +
+      '<nav role="tablist" aria-label="表示切り替え" class="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">' +
       tabBtn('calendar', 'calendar', 'カレンダー') + tabBtn('stats', 'barChart3', '集計・平均') + tabBtn('members', 'users', '家族メンバー') +
       '</nav>' +
       '</div>' +
@@ -463,6 +467,17 @@
       '</div>';
   }
 
+  /* カレンダー本来の主役はカレンダー自体なので、年月ナビは矢印だけの
+   * シンプルな表示にする（今日へ移動・今月通算の表示は削除） */
+  function calendarMonthNav() {
+    return '' +
+      '<div class="flex items-center justify-center gap-4 py-1">' +
+      '<button data-action="prev-month" aria-label="前月" class="p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition">' + icon('chevronLeft', 'w-5 h-5') + '</button>' +
+      '<h2 class="text-lg sm:text-xl font-bold text-slate-800 min-w-[8em] text-center">' + state.viewYear + '年 ' + state.viewMonth + '月</h2>' +
+      '<button data-action="next-month" aria-label="次月" class="p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition">' + icon('chevronRight', 'w-5 h-5') + '</button>' +
+      '</div>';
+  }
+
   function buildCalendarCells(year, month) {
     var firstDayIndex = new Date(year, month - 1, 1).getDay();
     var total = daysInMonth(year, month);
@@ -472,20 +487,27 @@
       var key = dateKey(year, month, d);
       cells.push({ empty: false, key: key, day: d, isToday: key === TODAY_KEY, isFuture: key > TODAY_KEY, isSelected: key === state.selectedDateStr, memberIds: state.gymLogs[key] || [] });
     }
+    /* 最終週が7日に満たない場合も、末尾を空セルで埋めて必ず7列×n行の
+     * きれいな長方形になるようにする（枠線・角丸が最後まで揃うように） */
+    while (cells.length % 7 !== 0) cells.push({ empty: true, key: 'e-trail-' + cells.length });
     return cells;
   }
 
   function renderCalendarGrid() {
     var cells = buildCalendarCells(state.viewYear, state.viewMonth);
-    /* カレンダーの外枠は rounded-2xl + overflow-hidden で角丸にしているため、
-     * 最終行の左端(・右端まで埋まっていればそこも)のセルは、選択リングや
-     * 背景色が外枠の角丸でスパッと切れて見えてしまう。そのセル自身にも
-     * 同じ角丸を与えて、切り取り線と見た目が揃うようにする。 */
-    var lastRowStart = Math.floor((cells.length - 1) / 7) * 7;
-    var hasBottomRight = cells.length - 1 === lastRowStart + 6;
+    var totalCells = cells.length; // buildCalendarCells が末尾を埋めるので必ず7の倍数
+    var lastRowStart = totalCells - 7;
+    /* 罫線は「右端以外に border-r」「最終行以外に border-b」をセル単位で
+     * 一律に付ける方式にする（divide-* だと DOM 順依存で崩れやすいため）。
+     * 外枠は rounded-2xl + overflow-hidden なので、四隅にあたるセルには
+     * 同じ角丸を重ねて、リングや背景色が角でスパッと切れないようにする。 */
     var html = cells.map(function (cell, i) {
-      var cornerCls = (i === lastRowStart ? ' rounded-bl-2xl' : '') + (hasBottomRight && i === lastRowStart + 6 ? ' rounded-br-2xl' : '');
-      if (cell.empty) return '<div class="min-h-[72px] sm:min-h-[90px] bg-slate-50/40' + cornerCls + '"></div>';
+      var col = i % 7;
+      var isLastRow = i >= lastRowStart;
+      var isLastCol = col === 6;
+      var borderCls = 'border-slate-200' + (isLastCol ? '' : ' border-r') + (isLastRow ? '' : ' border-b');
+      var cornerCls = (i === lastRowStart ? ' rounded-bl-2xl' : '') + (i === totalCells - 1 ? ' rounded-br-2xl' : '');
+      if (cell.empty) return '<div class="min-h-[64px] sm:min-h-[90px] bg-slate-50 ' + borderCls + cornerCls + '"></div>';
       var names = cell.memberIds.map(function (id) {
         var m = state.members.filter(function (x) { return x.id === id; })[0];
         return m ? m.name : null;
@@ -502,15 +524,12 @@
         return '<span class="w-2 h-2 rounded-full ' + getColor(m.colorId).bg + '"></span>';
       }).join('');
       var label = state.viewMonth + '月' + cell.day + '日' + (cell.isToday ? '、本日' : '') + (names.length ? '、' + names.join('・') + 'が参加' : '、参加者なし');
-      var cellCls = 'min-h-[72px] sm:min-h-[90px] p-1.5 text-left transition relative flex flex-col justify-between hover:bg-slate-50' +
+      var cellCls = 'min-h-[64px] sm:min-h-[90px] p-1.5 text-left transition relative flex flex-col justify-between hover:bg-slate-50 ' + borderCls +
         (cell.isSelected ? ' ring-2 ring-emerald-500 ring-inset bg-emerald-50/30' : '') +
-        (cell.isToday ? ' bg-amber-50/30' : '') + (cell.isFuture ? ' text-slate-400' : '') + cornerCls;
-      var numCls = 'inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ' + (cell.isToday ? 'bg-amber-500 text-white font-bold shadow-sm' : 'text-slate-700');
+        (cell.isToday ? ' bg-amber-50/40' : '') + (cell.isFuture ? ' text-slate-400' : '') + cornerCls;
+      var numCls = 'inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full text-sm font-bold ' + (cell.isToday ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-800');
       return '<button data-action="select-date" data-date="' + cell.key + '" aria-pressed="' + cell.isSelected + '" aria-label="' + escapeHtml(label) + '" class="' + cellCls + '">' +
-        '<div class="flex items-center justify-between">' +
         '<span class="' + numCls + '">' + cell.day + '</span>' +
-        (cell.memberIds.length ? '<span class="text-[10px] font-bold text-slate-400 sm:hidden">' + cell.memberIds.length + '人</span>' : '') +
-        '</div>' +
         '<div class="mt-1 flex flex-wrap gap-1 content-end">' + badges +
         '<div class="sm:hidden flex flex-wrap gap-0.5 mt-0.5">' + dots + '</div>' +
         '</div>' +
@@ -519,10 +538,10 @@
 
     return '' +
       '<div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">' +
-      '<div class="grid grid-cols-7 border-b border-slate-100 bg-slate-50/70 text-center text-xs font-semibold py-2.5">' +
+      '<div class="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-center text-xs font-semibold py-2.5">' +
       '<span class="text-rose-500">日</span><span class="text-slate-600">月</span><span class="text-slate-600">火</span><span class="text-slate-600">水</span><span class="text-slate-600">木</span><span class="text-slate-600">金</span><span class="text-blue-500">土</span>' +
       '</div>' +
-      '<div class="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-100">' + html + '</div>' +
+      '<div class="grid grid-cols-7">' + html + '</div>' +
       '</div>';
   }
 
@@ -568,7 +587,7 @@
   }
 
   function renderCalendarTab() {
-    return '<div class="space-y-6">' + renderStorageBanner() + monthNav(false) + renderCalendarGrid() + renderDetailPanel() + '</div>';
+    return '<div class="space-y-4">' + renderStorageBanner() + calendarMonthNav() + renderCalendarGrid() + renderDetailPanel() + '</div>';
   }
 
   function renderTrendChart(trend) {
