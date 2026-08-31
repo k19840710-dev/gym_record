@@ -484,21 +484,41 @@
     return cells;
   }
 
+  var WEEKDAY_HEADER_CELLS = [
+    { label: '日', color: 'text-rose-500' },
+    { label: '月', color: 'text-slate-600' },
+    { label: '火', color: 'text-slate-600' },
+    { label: '水', color: 'text-slate-600' },
+    { label: '木', color: 'text-slate-600' },
+    { label: '金', color: 'text-slate-600' },
+    { label: '土', color: 'text-blue-500' }
+  ];
+
   function renderCalendarGrid() {
     var cells = buildCalendarCells(state.viewYear, state.viewMonth);
-    var totalCells = cells.length; // buildCalendarCells が末尾を埋めるので必ず7の倍数
+    var totalDayCells = cells.length; // buildCalendarCells が末尾を埋めるので必ず7の倍数
+    var totalCells = totalDayCells + 7; // 曜日行も同じグリッドの一部として数える
     var lastRowStart = totalCells - 7;
-    /* 罫線は「右端以外に border-r」「最終行以外に border-b」をセル単位で
-     * 一律に付ける方式にする（divide-* だと DOM 順依存で崩れやすいため）。
-     * 外枠は rounded-2xl + overflow-hidden なので、四隅にあたるセルには
-     * 同じ角丸を重ねて、リングや背景色が角でスパッと切れないようにする。 */
-    var html = cells.map(function (cell, i) {
-      var col = i % 7;
-      var isLastRow = i >= lastRowStart;
+    /* 曜日欄と日付セルを「同じ1つの grid grid-cols-7」に含めることで、
+     * 縦罫線が曜日行から最終週まで途切れず一直線に通るようにする
+     * （別々の grid だと見た目上は揃っていても「表として繋がっている」
+     * 印象にならないため）。罫線は「右端以外に border-r」「最終行以外に
+     * border-b」をセル単位で一律に付ける。外枠は rounded-2xl +
+     * overflow-hidden なので、四隅にあたるセルには同じ角丸を重ねて、
+     * リングや背景色が角でスパッと切れないようにする。 */
+    var headerHtml = WEEKDAY_HEADER_CELLS.map(function (w, col) {
+      var borderCls = 'border-slate-200 border-b' + (col === 6 ? '' : ' border-r');
+      return '<div class="' + w.color + ' bg-slate-50 text-center text-xs font-semibold py-2.5 ' + borderCls + '">' + w.label + '</div>';
+    }).join('');
+
+    var dayHtml = cells.map(function (cell, i) {
+      var idx = i + 7; // 曜日行の分だけずらして罫線・角丸の判定に使う
+      var col = idx % 7;
+      var isLastRow = idx >= lastRowStart;
       var isLastCol = col === 6;
       var borderCls = 'border-slate-200' + (isLastCol ? '' : ' border-r') + (isLastRow ? '' : ' border-b');
-      var cornerCls = (i === lastRowStart ? ' rounded-bl-2xl' : '') + (i === totalCells - 1 ? ' rounded-br-2xl' : '');
-      if (cell.empty) return '<div class="min-h-[56px] sm:min-h-[90px] bg-slate-50 ' + borderCls + cornerCls + '"></div>';
+      var cornerCls = (idx === lastRowStart ? ' rounded-bl-2xl' : '') + (idx === totalCells - 1 ? ' rounded-br-2xl' : '');
+      if (cell.empty) return '<div class="min-h-[72px] sm:min-h-[90px] bg-slate-50 ' + borderCls + cornerCls + '"></div>';
       var names = cell.memberIds.map(function (id) {
         var m = state.members.filter(function (x) { return x.id === id; })[0];
         return m ? m.name : null;
@@ -515,10 +535,10 @@
         return '<span class="w-2 h-2 rounded-full ' + getColor(m.colorId).bg + '"></span>';
       }).join('');
       var label = state.viewMonth + '月' + cell.day + '日' + (cell.isToday ? '、本日' : '') + (names.length ? '、' + names.join('・') + 'が参加' : '、参加者なし');
-      var cellCls = 'min-h-[56px] sm:min-h-[90px] p-1.5 text-left transition relative flex flex-col justify-between hover:bg-slate-50 ' + borderCls +
+      var cellCls = 'min-h-[72px] sm:min-h-[90px] p-1.5 text-left transition relative flex flex-col justify-between hover:bg-slate-50 ' + borderCls +
         (cell.isSelected ? ' ring-2 ring-emerald-500 ring-inset bg-emerald-50/30' : '') +
         (cell.isToday ? ' bg-amber-50/40' : '') + (cell.isFuture ? ' text-slate-400' : '') + cornerCls;
-      var numCls = 'inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full text-sm font-bold ' + (cell.isToday ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-800');
+      var numCls = 'self-end inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full text-sm font-bold ' + (cell.isToday ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-800');
       return '<button data-action="select-date" data-date="' + cell.key + '" aria-pressed="' + cell.isSelected + '" aria-label="' + escapeHtml(label) + '" class="' + cellCls + '">' +
         '<span class="' + numCls + '">' + cell.day + '</span>' +
         '<div class="mt-1 flex flex-wrap gap-1 content-end">' + badges +
@@ -529,16 +549,7 @@
 
     return '' +
       '<div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">' +
-      '<div class="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-center text-xs font-semibold py-2">' +
-      '<span class="text-rose-500 border-r border-slate-200 py-0.5">日</span>' +
-      '<span class="text-slate-600 border-r border-slate-200 py-0.5">月</span>' +
-      '<span class="text-slate-600 border-r border-slate-200 py-0.5">火</span>' +
-      '<span class="text-slate-600 border-r border-slate-200 py-0.5">水</span>' +
-      '<span class="text-slate-600 border-r border-slate-200 py-0.5">木</span>' +
-      '<span class="text-slate-600 border-r border-slate-200 py-0.5">金</span>' +
-      '<span class="text-blue-500 py-0.5">土</span>' +
-      '</div>' +
-      '<div class="grid grid-cols-7">' + html + '</div>' +
+      '<div class="grid grid-cols-7">' + headerHtml + dayHtml + '</div>' +
       '</div>';
   }
 
@@ -572,12 +583,9 @@
 
     return '' +
       '<div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">' +
-      '<div class="flex items-center justify-between pb-3 border-b border-slate-100">' +
-      '<div class="flex items-center space-x-2">' +
+      '<div class="flex items-center space-x-2 pb-3 border-b border-slate-100">' +
       '<div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">' + icon('userCheck', 'w-4 h-4') + '</div>' +
       '<div><h3 class="font-bold text-slate-800 text-sm sm:text-base">' + m + '月' + d + '日（' + wd + '）のジム記録</h3><p class="text-xs text-slate-500">タップして参加メンバーを切り替えられます</p></div>' +
-      '</div>' +
-      '<span class="text-xs px-2.5 py-1 bg-slate-100 rounded-full font-semibold text-slate-600">参加: ' + attendees.length + '人</span>' +
       '</div>' +
       body +
       '</div>';
