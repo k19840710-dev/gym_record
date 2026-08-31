@@ -477,8 +477,15 @@
 
   function renderCalendarGrid() {
     var cells = buildCalendarCells(state.viewYear, state.viewMonth);
-    var html = cells.map(function (cell) {
-      if (cell.empty) return '<div class="min-h-[72px] sm:min-h-[90px] bg-slate-50/40"></div>';
+    /* カレンダーの外枠は rounded-2xl + overflow-hidden で角丸にしているため、
+     * 最終行の左端(・右端まで埋まっていればそこも)のセルは、選択リングや
+     * 背景色が外枠の角丸でスパッと切れて見えてしまう。そのセル自身にも
+     * 同じ角丸を与えて、切り取り線と見た目が揃うようにする。 */
+    var lastRowStart = Math.floor((cells.length - 1) / 7) * 7;
+    var hasBottomRight = cells.length - 1 === lastRowStart + 6;
+    var html = cells.map(function (cell, i) {
+      var cornerCls = (i === lastRowStart ? ' rounded-bl-2xl' : '') + (hasBottomRight && i === lastRowStart + 6 ? ' rounded-br-2xl' : '');
+      if (cell.empty) return '<div class="min-h-[72px] sm:min-h-[90px] bg-slate-50/40' + cornerCls + '"></div>';
       var names = cell.memberIds.map(function (id) {
         var m = state.members.filter(function (x) { return x.id === id; })[0];
         return m ? m.name : null;
@@ -497,7 +504,7 @@
       var label = state.viewMonth + '月' + cell.day + '日' + (cell.isToday ? '、本日' : '') + (names.length ? '、' + names.join('・') + 'が参加' : '、参加者なし');
       var cellCls = 'min-h-[72px] sm:min-h-[90px] p-1.5 text-left transition relative flex flex-col justify-between hover:bg-slate-50' +
         (cell.isSelected ? ' ring-2 ring-emerald-500 ring-inset bg-emerald-50/30' : '') +
-        (cell.isToday ? ' bg-amber-50/30' : '') + (cell.isFuture ? ' text-slate-400' : '');
+        (cell.isToday ? ' bg-amber-50/30' : '') + (cell.isFuture ? ' text-slate-400' : '') + cornerCls;
       var numCls = 'inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ' + (cell.isToday ? 'bg-amber-500 text-white font-bold shadow-sm' : 'text-slate-700');
       return '<button data-action="select-date" data-date="' + cell.key + '" aria-pressed="' + cell.isSelected + '" aria-label="' + escapeHtml(label) + '" class="' + cellCls + '">' +
         '<div class="flex items-center justify-between">' +
