@@ -6,6 +6,9 @@
 <meta name="description" content="家族のジム出席をカレンダーで記録し、メンバー別の月平均・達成率・推移を確認できるトラッカーです。">
 <title>家族のジム通いログ</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.14.1/firebase-app-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.14.1/firebase-auth-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.14.1/firebase-database-compat.js"></script>
 <style id="app-style">
   html, body { background: #f8fafc; }
   svg { width: 20px; height: 20px; }
@@ -169,8 +172,12 @@
     ];
     var titleEl = document.querySelector('title');
     headBits.push(titleEl ? titleEl.outerHTML : '<title>家族のジム通いログ</title>');
-    var tailwindScript = document.querySelector('script[src*="tailwindcss.com"]');
-    if (tailwindScript) headBits.push('<script src="' + tailwindScript.src + '"><' + '/script>');
+    /* Tailwind / Firebase など、外部読み込みの <script src="..."> をすべて
+     * 元の順序のまま引き継ぐ（自分自身のロジックを埋め込んだ <script> は
+     * 別途 bodyBits で追加するので、ここでは外部srcのものだけを拾う） */
+    Array.prototype.forEach.call(document.querySelectorAll('script[src]'), function (s) {
+      headBits.push('<script src="' + s.src + '"><' + '/script>');
+    });
     var styleEl = document.getElementById('app-style');
     if (styleEl) headBits.push(styleEl.outerHTML);
 
@@ -192,8 +199,71 @@
     return artifactCapPromise;
   }
 
+  /* =========================================================
+   * Firebase Realtime Database での同期
+   * -----------------------------------------------------------
+   * GitHub Pages など、Claude Artifact の外で開かれた場合でも家族
+   * 全員の記録を1つにまとめるための仕組み。データは
+   * FIREBASE_CONFIG.databaseURL 配下の FB_DATA_PATH に1つの
+   * オブジェクトとして保存し、変更をリアルタイムに全員へ配信する。
+   * ========================================================= */
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyCjPX_nFdl6HfG4xN3czb6AozJJR3oEA1M",
+    authDomain: "family-gym-log.firebaseapp.com",
+    databaseURL: "https://family-gym-log-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "family-gym-log",
+    storageBucket: "family-gym-log.firebasestorage.app",
+    messagingSenderId: "55340092274",
+    appId: "1:55340092274:web:f21f84d8317a5ad00a2beb"
+  };
+  var FB_DATA_PATH = 'family-gym-log/data';
+  var fbRef = null;
+  var fbInitialPushDone = false;
+  var fbApplyingRemote = false; // リモートからの反映中に render() が別の同期を呼ばないようにするフラグ
+
+  function initFirebaseSync() {
+    if (!FIREBASE_CONFIG.apiKey || !window.firebase || typeof firebase.initializeApp !== 'function') return;
+    try {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      firebase.auth().onAuthStateChanged(function (user) {
+        if (!user || fbRef) return;
+        fbRef = firebase.database().ref(FB_DATA_PATH);
+        fbRef.on('value', function (snapshot) {
+          var val = snapshot.val();
+          if (val && Array.isArray(val.members) && val.gymLogs && typeof val.gymLogs === 'object') {
+            fbApplyingRemote = true;
+            state.members = val.members;
+            state.gymLogs = val.gymLogs;
+            state.fbSynced = true;
+            persist();
+            render();
+            fbApplyingRemote = false;
+          } else if (!fbInitialPushDone) {
+            /* データベースが空 = 家族で最初の1回。今表示している内容を初期データとして書き込む */
+            fbInitialPushDone = true;
+            fbRef.set({ members: state.members, gymLogs: state.gymLogs });
+          }
+        }, function () {
+          /* 読み取り失敗（ルール未設定など）。ローカル保存にフォールバックしたまま続行 */
+        });
+      });
+      firebase.auth().signInAnonymously().catch(function () {
+        /* 匿名ログインが無効なままなどの場合。ローカル保存にフォールバック */
+      });
+    } catch (e) { /* Firebase 初期化に失敗しても致命的にしない */ }
+  }
+  initFirebaseSync();
+
   function syncState() {
-    persist(); // このブラウザだけのキャッシュとしても保持しておく
+    persist(); // このブラウザだけのキャッシュとしても常に保持しておく
+    if (fbApplyingRemote) return; // リモートの値をそのまま state に反映しただけなら書き戻さない
+    if (fbRef) {
+      fbRef.set({ members: state.members, gymLogs: state.gymLogs }).catch(function () {
+        state.syncErrorNotice = true;
+        render();
+      });
+      return;
+    }
     if (state.readOnly) return; // 一度書き込み不可と判明したら再送しない
     getArtifact().then(function (artifact) {
       if (!artifact) return; // capability が使えないビュー（この端末限定のまま）
@@ -249,7 +319,8 @@
     bannerDismissed: false,
     readOnly: false,
     readOnlyNoticeDismissed: false,
-    syncErrorNotice: false
+    syncErrorNotice: false,
+    fbSynced: false
   };
   state.addMember.colorId = pickDefaultColor(null);
 
@@ -344,6 +415,7 @@
       '<div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white shadow-md shadow-emerald-100">' + icon('dumbbell', 'w-5 h-5') + '</div>' +
       '<div><h1 class="text-lg font-bold leading-tight text-slate-900 flex items-center gap-2">家族のジム通いログ' +
       (state.readOnly ? '<span class="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">閲覧専用</span>' : '') +
+      (!state.readOnly && state.fbSynced ? '<span class="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>同期中</span>' : '') +
       '</h1><p class="text-xs text-slate-500">みんなで目指す健康習慣</p></div>' +
       '</div>' +
       '<nav role="tablist" aria-label="表示切り替え" class="flex bg-slate-100 p-1 rounded-xl">' +
