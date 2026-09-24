@@ -140,8 +140,16 @@
     [3, 5, 8, 10, 12, 15, 17, 20, 22, 24, 27, 29].forEach(function (d) {
       gymLogs[dateKey(prev.y, prev.m, d)] = ['1', '3', '4'];
     });
-    return { members: members, gymLogs: gymLogs };
+    /* 「行く予定」のサンプル（今月の未来日がある場合だけ、少し先を1〜2件） */
+    var plannedLogs = {};
+    [TODAY.d + 3, TODAY.d + 6].forEach(function (d) {
+      if (d > daysInMonth(TODAY.y, TODAY.m)) return;
+      plannedLogs[dateKey(TODAY.y, TODAY.m, d)] = ['3'];
+    });
+    return { members: members, gymLogs: gymLogs, plannedLogs: plannedLogs };
   }
+
+  function toPlainObject(v) { return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {}; }
 
   function loadInitialData() {
     if (storageAvailable) {
@@ -150,7 +158,7 @@
         if (raw) {
           var parsed = JSON.parse(raw);
           if (parsed && Array.isArray(parsed.members) && parsed.gymLogs && typeof parsed.gymLogs === 'object') {
-            return { members: parsed.members, gymLogs: parsed.gymLogs };
+            return { members: parsed.members, gymLogs: parsed.gymLogs, plannedLogs: toPlainObject(parsed.plannedLogs) };
           }
         }
       } catch (e) { /* 壊れたデータはシードにフォールバック */ }
@@ -159,7 +167,7 @@
   }
   function persist() {
     if (!storageAvailable) return;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ members: state.members, gymLogs: state.gymLogs })); }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ members: state.members, gymLogs: state.gymLogs, plannedLogs: state.plannedLogs })); }
     catch (e) { /* 保存領域切れなどは静かに無視 */ }
   }
 
@@ -239,6 +247,7 @@
             fbApplyingRemote = true;
             state.members = val.members;
             state.gymLogs = val.gymLogs;
+            state.plannedLogs = toPlainObject(val.plannedLogs);
             state.fbSynced = true;
             persist();
             render();
@@ -246,7 +255,7 @@
           } else if (!fbInitialPushDone) {
             /* データベースが空 = 家族で最初の1回。今表示している内容を初期データとして書き込む */
             fbInitialPushDone = true;
-            fbRef.set({ members: state.members, gymLogs: state.gymLogs });
+            fbRef.set({ members: state.members, gymLogs: state.gymLogs, plannedLogs: state.plannedLogs });
           }
         }, function () {
           /* 読み取り失敗（ルール未設定など）。ローカル保存にフォールバックしたまま続行 */
@@ -263,7 +272,7 @@
     persist(); // このブラウザだけのキャッシュとしても常に保持しておく
     if (fbApplyingRemote) return; // リモートの値をそのまま state に反映しただけなら書き戻さない
     if (fbRef) {
-      fbRef.set({ members: state.members, gymLogs: state.gymLogs }).catch(function () {
+      fbRef.set({ members: state.members, gymLogs: state.gymLogs, plannedLogs: state.plannedLogs }).catch(function () {
         state.syncErrorNotice = true;
         render();
       });
@@ -272,7 +281,7 @@
     if (state.readOnly) return; // 一度書き込み不可と判明したら再送しない
     getArtifact().then(function (artifact) {
       if (!artifact) return; // capability が使えないビュー（この端末限定のまま）
-      artifact.publish(buildFullHtml({ members: state.members, gymLogs: state.gymLogs })).catch(function (err) {
+      artifact.publish(buildFullHtml({ members: state.members, gymLogs: state.gymLogs, plannedLogs: state.plannedLogs })).catch(function (err) {
         var code = err && err.code;
         if (code === 'not_writer' || code === 'not_granted' || code === 'consent_required') {
           state.readOnly = true;
@@ -298,7 +307,7 @@
       if (el) {
         var parsed = JSON.parse(el.textContent);
         if (parsed && Array.isArray(parsed.members) && parsed.gymLogs && typeof parsed.gymLogs === 'object') {
-          return { members: parsed.members, gymLogs: parsed.gymLogs };
+          return { members: parsed.members, gymLogs: parsed.gymLogs, plannedLogs: toPlainObject(parsed.plannedLogs) };
         }
       }
     } catch (e) { /* 壊れていれば無視してフォールバック */ }
@@ -313,6 +322,7 @@
   var state = {
     members: seed.members,
     gymLogs: seed.gymLogs,
+    plannedLogs: seed.plannedLogs || {},
     activeTab: 'calendar',
     viewYear: TODAY.y,
     viewMonth: TODAY.m,
@@ -476,7 +486,7 @@
     for (var i = 0; i < firstDayIndex; i++) cells.push({ empty: true, key: 'e' + i });
     for (var d = 1; d <= total; d++) {
       var key = dateKey(year, month, d);
-      cells.push({ empty: false, key: key, day: d, isToday: key === TODAY_KEY, isFuture: key > TODAY_KEY, isSelected: key === state.selectedDateStr, memberIds: state.gymLogs[key] || [] });
+      cells.push({ empty: false, key: key, day: d, isToday: key === TODAY_KEY, isFuture: key > TODAY_KEY, isSelected: key === state.selectedDateStr, memberIds: state.gymLogs[key] || [], plannedIds: state.plannedLogs[key] || [] });
     }
     /* 最終週が7日に満たない場合も、末尾を空セルで埋めて必ず7列×n行の
      * きれいな長方形になるようにする（枠線・角丸が最後まで揃うように） */
@@ -523,6 +533,10 @@
         var m = state.members.filter(function (x) { return x.id === id; })[0];
         return m ? m.name : null;
       }).filter(Boolean);
+      var plannedNames = cell.plannedIds.map(function (id) {
+        var m = state.members.filter(function (x) { return x.id === id; })[0];
+        return m ? m.name : null;
+      }).filter(Boolean);
       var badges = cell.memberIds.map(function (id) {
         var m = state.members.filter(function (x) { return x.id === id; })[0];
         if (!m) return '';
@@ -534,15 +548,31 @@
         if (!m) return '';
         return '<span class="w-2 h-2 rounded-full ' + getColor(m.colorId).bg + '"></span>';
       }).join('');
-      var label = state.viewMonth + '月' + cell.day + '日' + (cell.isToday ? '、本日' : '') + (names.length ? '、' + names.join('・') + 'が参加' : '、参加者なし');
+      /* 「行く予定」は実績と見分けられるよう、塗りつぶしではなく輪郭だけの
+       * バッジ・ドットにする（色そのものはメンバーカラーを踏襲） */
+      var plannedBadges = cell.plannedIds.map(function (id) {
+        var m = state.members.filter(function (x) { return x.id === id; })[0];
+        if (!m) return '';
+        var c = getColor(m.colorId);
+        return '<span title="' + escapeHtml(m.name) + '（予定）" class="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium leading-none bg-white border ' + c.border + ' ' + c.text + '">' + escapeHtml(m.name.slice(0, 3)) + '</span>';
+      }).join('');
+      var plannedDots = cell.plannedIds.map(function (id) {
+        var m = state.members.filter(function (x) { return x.id === id; })[0];
+        if (!m) return '';
+        return '<span class="w-2 h-2 rounded-full bg-white border-2 ' + getColor(m.colorId).border + '"></span>';
+      }).join('');
+      var label = state.viewMonth + '月' + cell.day + '日' + (cell.isToday ? '、本日' : '') +
+        (names.length ? '、' + names.join('・') + 'が参加' : '') +
+        (plannedNames.length ? '、' + plannedNames.join('・') + 'が参加予定' : '') +
+        (!names.length && !plannedNames.length ? '、参加者なし' : '');
       var cellCls = 'min-h-[72px] sm:min-h-[90px] p-2 text-left transition relative flex flex-col items-start justify-between hover:bg-slate-50 ' + borderCls +
         (cell.isSelected ? ' ring-2 ring-emerald-500 ring-inset bg-emerald-50/30' : '') +
-        (cell.isToday ? ' bg-amber-50/40' : '') + (cell.isFuture ? ' text-slate-400' : '') + cornerCls;
+        (cell.isToday ? ' bg-amber-50/40' : '') + cornerCls;
       var numCls = '-mt-[6px] -ml-[6px] inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full text-sm font-bold ' + (cell.isToday ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-800');
       return '<button data-action="select-date" data-date="' + cell.key + '" aria-pressed="' + cell.isSelected + '" aria-label="' + escapeHtml(label) + '" class="' + cellCls + '">' +
         '<span class="' + numCls + '">' + cell.day + '</span>' +
-        '<div class="mt-1 flex flex-wrap gap-1 content-end">' + badges +
-        '<div class="sm:hidden flex flex-wrap gap-0.5 mt-0.5">' + dots + '</div>' +
+        '<div class="mt-1 flex flex-wrap gap-1 content-end">' + badges + plannedBadges +
+        '<div class="sm:hidden flex flex-wrap gap-0.5 mt-0.5">' + dots + plannedDots + '</div>' +
         '</div>' +
         '</button>';
     }).join('');
@@ -557,35 +587,43 @@
     var parts = state.selectedDateStr.split('-').map(Number);
     var y = parts[0], m = parts[1], d = parts[2];
     var wd = WEEKDAY_JA[new Date(y, m - 1, d).getDay()];
-    var attendees = state.gymLogs[state.selectedDateStr] || [];
     var isFuture = state.selectedDateStr > TODAY_KEY;
+    /* 未来日は「実績」を付けられないので、代わりに「行く予定」を
+     * 選べるようにする（同じトグルUIを使い回し、対象データと見た目
+     * だけ切り替える）。過去・当日はこれまで通り実績のトグル。 */
+    var activeList = isFuture ? (state.plannedLogs[state.selectedDateStr] || []) : (state.gymLogs[state.selectedDateStr] || []);
+    var actionName = isFuture ? 'toggle-planned' : 'toggle-attendance';
 
     var body;
     if (!state.members.length) {
       body = '<p class="text-center text-sm text-slate-500 py-8">メンバーがいません。「家族メンバー」タブから追加してください。</p>';
     } else {
-      var blocked = isFuture || state.readOnly;
+      var blocked = state.readOnly;
       var buttons = state.members.map(function (mem) {
-        var isOn = attendees.indexOf(mem.id) !== -1;
+        var isOn = activeList.indexOf(mem.id) !== -1;
         var c = getColor(mem.colorId);
         var btnCls = 'p-3 rounded-xl border-2 transition text-left flex items-center justify-between ' +
-          (isOn ? c.border + ' ' + c.lightBg + ' shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 opacity-60') +
+          (isOn ? c.border + ' ' + c.lightBg + ' shadow-sm' + (isFuture ? ' border-dashed' : '') : 'border-slate-200 bg-white hover:border-slate-300 opacity-60') +
           (blocked ? ' cursor-not-allowed opacity-40' : '');
         var checkCls = 'w-6 h-6 rounded-full flex items-center justify-center border transition ' + (isOn ? c.bg + ' text-white border-transparent' : 'border-slate-300 bg-white text-transparent');
-        return '<button data-action="toggle-attendance" data-date="' + state.selectedDateStr + '" data-member="' + mem.id + '" aria-pressed="' + isOn + '"' + (blocked ? ' disabled aria-disabled="true"' : '') + ' class="' + btnCls + '">' +
+        return '<button data-action="' + actionName + '" data-date="' + state.selectedDateStr + '" data-member="' + mem.id + '" aria-pressed="' + isOn + '"' + (blocked ? ' disabled aria-disabled="true"' : '') + ' class="' + btnCls + '">' +
           '<div class="flex items-center space-x-2.5 truncate"><span class="w-3 h-3 rounded-full flex-shrink-0 ' + c.bg + '"></span><span class="font-bold text-sm text-slate-800 truncate">' + escapeHtml(mem.name) + '</span></div>' +
           '<div class="' + checkCls + '">' + icon('check', 'w-3.5 h-3.5 stroke-[3]') + '</div>' +
           '</button>';
       }).join('');
-      body = '<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">' + buttons + '</div>' +
-        (isFuture ? '<p class="text-xs text-slate-400 mt-3">未来の日付には記録を付けられません。</p>' : '');
+      body = '<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">' + buttons + '</div>';
     }
+
+    var headIconCls = isFuture ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700';
+    var headIcon = isFuture ? 'calendar' : 'userCheck';
+    var headTitle = m + '月' + d + '日（' + wd + '）の' + (isFuture ? '予定' : 'ジム記録');
+    var headSub = isFuture ? 'タップして行く予定のメンバーを選べます' : 'タップして参加メンバーを切り替えられます';
 
     return '' +
       '<div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">' +
       '<div class="flex items-center space-x-2 pb-3 border-b border-slate-100">' +
-      '<div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">' + icon('userCheck', 'w-4 h-4') + '</div>' +
-      '<div><h3 class="font-bold text-slate-800 text-sm sm:text-base">' + m + '月' + d + '日（' + wd + '）のジム記録</h3><p class="text-xs text-slate-500">タップして参加メンバーを切り替えられます</p></div>' +
+      '<div class="w-8 h-8 rounded-lg ' + headIconCls + ' flex items-center justify-center font-bold">' + icon(headIcon, 'w-4 h-4') + '</div>' +
+      '<div><h3 class="font-bold text-slate-800 text-sm sm:text-base">' + headTitle + '</h3><p class="text-xs text-slate-500">' + headSub + '</p></div>' +
       '</div>' +
       body +
       '</div>';
@@ -824,11 +862,23 @@
     if (next.length) state.gymLogs[dateStr] = next; else delete state.gymLogs[dateStr];
     syncState();
   }
+  function togglePlanned(dateStr, memberId) {
+    if (dateStr <= TODAY_KEY || state.readOnly) return;
+    var list = state.plannedLogs[dateStr] || [];
+    var has = list.indexOf(memberId) !== -1;
+    var next = has ? list.filter(function (id) { return id !== memberId; }) : list.concat([memberId]);
+    if (next.length) state.plannedLogs[dateStr] = next; else delete state.plannedLogs[dateStr];
+    syncState();
+  }
   function deleteMember(id) {
     state.members = state.members.filter(function (m) { return m.id !== id; });
     Object.keys(state.gymLogs).forEach(function (k) {
       var filtered = state.gymLogs[k].filter(function (mid) { return mid !== id; });
       if (filtered.length) state.gymLogs[k] = filtered; else delete state.gymLogs[k];
+    });
+    Object.keys(state.plannedLogs).forEach(function (k) {
+      var filtered = state.plannedLogs[k].filter(function (mid) { return mid !== id; });
+      if (filtered.length) state.plannedLogs[k] = filtered; else delete state.plannedLogs[k];
     });
     syncState();
   }
@@ -856,6 +906,7 @@
     'set-tab': function (el) { state.activeTab = el.dataset.tab; render(); },
     'select-date': function (el) { state.selectedDateStr = el.dataset.date; render(); },
     'toggle-attendance': function (el) { toggleAttendance(el.dataset.date, el.dataset.member); render(); },
+    'toggle-planned': function (el) { togglePlanned(el.dataset.date, el.dataset.member); render(); },
     'add-pick-color': function (el) { if (!el.disabled) selectSwatch('add-color-picker', el, state.addMember); },
     'edit-pick-color': function (el) { if (state.editing && !el.disabled) selectSwatch('edit-color-picker', el, state.editing); },
     'open-edit-member': function (el) {
