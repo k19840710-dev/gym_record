@@ -486,7 +486,12 @@
     for (var i = 0; i < firstDayIndex; i++) cells.push({ empty: true, key: 'e' + i });
     for (var d = 1; d <= total; d++) {
       var key = dateKey(year, month, d);
-      cells.push({ empty: false, key: key, day: d, isToday: key === TODAY_KEY, isFuture: key > TODAY_KEY, isSelected: key === state.selectedDateStr, memberIds: state.gymLogs[key] || [], plannedIds: state.plannedLogs[key] || [] });
+      var isFuture = key > TODAY_KEY;
+      /* 予定は「まだ先のこと」を示す表示なので、今日を迎えた／過ぎた日は
+       * 実績（gymLogs）だけを見せる。plannedLogs 自体は削除せず残すが、
+       * 未来日でなくなった日には表示しない（実績と予定が二重に見えて
+       * 混同するのを防ぐ）。 */
+      cells.push({ empty: false, key: key, day: d, isToday: key === TODAY_KEY, isFuture: isFuture, isSelected: key === state.selectedDateStr, memberIds: state.gymLogs[key] || [], plannedIds: isFuture ? (state.plannedLogs[key] || []) : [] });
     }
     /* 最終週が7日に満たない場合も、末尾を空セルで埋めて必ず7列×n行の
      * きれいな長方形になるようにする（枠線・角丸が最後まで揃うように） */
