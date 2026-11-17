@@ -16,6 +16,32 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
   }
+
+  /* 連続記録のお祝い演出（紙吹雪・トースト）用。#app の外（body直下）に
+   * 差し込むので、render() が #app の innerHTML を書き換えても消えない。 */
+  .confetti-layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 60; }
+  .confetti-piece {
+    position: absolute; top: -24px; border-radius: 2px;
+    animation-name: confetti-fall; animation-timing-function: cubic-bezier(.25,.46,.45,.94); animation-fill-mode: forwards;
+    will-change: transform, opacity;
+  }
+  @keyframes confetti-fall {
+    0%   { transform: translate(0, -10px) rotate(0deg); opacity: 1; }
+    85%  { opacity: 1; }
+    100% { transform: translate(var(--drift), 108vh) rotate(var(--spin)); opacity: 0; }
+  }
+  .toast-wrap {
+    position: fixed; top: max(20px, env(safe-area-inset-top, 0px)); left: 50%;
+    transform: translateX(-50%) translateY(-16px) scale(.9); opacity: 0; pointer-events: none; z-index: 70;
+  }
+  .toast-wrap.show { animation: toast-pop 1.8s cubic-bezier(.34,1.56,.64,1) forwards; }
+  @keyframes toast-pop {
+    0%   { transform: translateX(-50%) translateY(-16px) scale(.9); opacity: 0; }
+    15%  { transform: translateX(-50%) translateY(0) scale(1.04); opacity: 1; }
+    25%  { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+    80%  { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+    100% { transform: translateX(-50%) translateY(-10px) scale(.97); opacity: 0; }
+  }
 </style>
 </head>
 <body>
@@ -879,6 +905,54 @@
   }
 
   /* =========================================================
+   * 連続記録のお祝い演出
+   * -----------------------------------------------------------
+   * 今日の出席を新しくONにして、連続記録が2日以上になった瞬間だけ
+   * 紙吹雪とトーストを表示する。見た目だけの演出で、state・同期・
+   * 保存データには一切影響しない（body直下に要素を足して自分で
+   * 消すだけ）。prefers-reduced-motion の場合は演出自体を出さない。
+   * ========================================================= */
+  var CONFETTI_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#f43f5e', '#a855f7', '#06b6d4'];
+  var prefersReducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  function spawnConfetti() {
+    var layer = document.createElement('div');
+    layer.className = 'confetti-layer';
+    document.body.appendChild(layer);
+    for (var i = 0; i < 70; i++) {
+      var piece = document.createElement('div');
+      piece.className = 'confetti-piece';
+      var size = 6 + Math.random() * 7;
+      var tall = Math.random() > 0.4;
+      piece.style.width = (tall ? size * 0.6 : size) + 'px';
+      piece.style.height = (tall ? size * 1.6 : size) + 'px';
+      piece.style.left = (Math.random() * 100) + 'vw';
+      piece.style.background = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+      var drift = (Math.random() * 160 - 80).toFixed(0) + 'px';
+      var spin = (Math.random() > 0.5 ? 1 : -1) * (360 + Math.random() * 720);
+      piece.style.setProperty('--drift', drift);
+      piece.style.setProperty('--spin', spin.toFixed(0) + 'deg');
+      piece.style.animationDuration = (1.9 + Math.random() * 1.1).toFixed(2) + 's';
+      piece.style.animationDelay = (Math.random() * 0.5).toFixed(2) + 's';
+      layer.appendChild(piece);
+    }
+    setTimeout(function () { layer.remove(); }, 3400);
+  }
+  function showStreakToast(n) {
+    var wrap = document.createElement('div');
+    wrap.className = 'toast-wrap';
+    wrap.innerHTML = '<div class="bg-slate-900 text-white text-sm font-bold px-4 py-2 rounded-full shadow-lg flex items-center gap-1.5">' +
+      icon('flame', 'w-4 h-4 text-amber-400') + '<span>' + n + '日連続！</span></div>';
+    document.body.appendChild(wrap);
+    requestAnimationFrame(function () { wrap.classList.add('show'); });
+    setTimeout(function () { wrap.remove(); }, 1900);
+  }
+  function celebrateStreak(n) {
+    showStreakToast(n);
+    if (!prefersReducedMotion) spawnConfetti();
+  }
+
+  /* =========================================================
    * アクション
    * ========================================================= */
   function toggleAttendance(dateStr, memberId) {
@@ -888,6 +962,12 @@
     var next = has ? list.filter(function (id) { return id !== memberId; }) : list.concat([memberId]);
     if (next.length) state.gymLogs[dateStr] = next; else delete state.gymLogs[dateStr];
     syncState();
+    /* 今日の出席を新しくONにしたときだけ判定する（過去日をあとから
+     * 記録した場合や、OFFに戻した場合はお祝いを出さない） */
+    if (!has && dateStr === TODAY_KEY) {
+      var streak = computeStreak(memberId);
+      if (streak >= 2) celebrateStreak(streak);
+    }
   }
   function togglePlanned(dateStr, memberId) {
     if (dateStr <= TODAY_KEY || state.readOnly) return;
