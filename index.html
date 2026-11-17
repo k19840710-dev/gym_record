@@ -42,6 +42,22 @@
     80%  { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
     100% { transform: translateX(-50%) translateY(-10px) scale(.97); opacity: 0; }
   }
+
+  /* 家族全員出席のお祝い演出用。個人の連続記録トースト（上記）と同時に
+   * 出ても重ならないよう、少し低い位置に表示する。 */
+  .banner-wrap {
+    position: fixed; top: max(78px, calc(env(safe-area-inset-top, 0px) + 78px)); left: 50%;
+    transform: translateX(-50%) translateY(-24px) scale(.92); opacity: 0; pointer-events: none; z-index: 70;
+    width: min(90vw, 360px);
+  }
+  .banner-wrap.show { animation: banner-pop 2.4s cubic-bezier(.34,1.56,.64,1) forwards; }
+  @keyframes banner-pop {
+    0%   { transform: translateX(-50%) translateY(-24px) scale(.92); opacity: 0; }
+    14%  { transform: translateX(-50%) translateY(0) scale(1.03); opacity: 1; }
+    24%  { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+    84%  { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+    100% { transform: translateX(-50%) translateY(-14px) scale(.97); opacity: 0; }
+  }
 </style>
 </head>
 <body>
@@ -913,13 +929,16 @@
    * 消すだけ）。prefers-reduced-motion の場合は演出自体を出さない。
    * ========================================================= */
   var CONFETTI_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#f43f5e', '#a855f7', '#06b6d4'];
+  var FAMILY_CONFETTI_COLORS = CONFETTI_COLORS.concat(['#eab308', '#eab308']);
   var prefersReducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-  function spawnConfetti() {
+  function spawnConfetti(count, colors) {
+    count = count || 70;
+    colors = colors || CONFETTI_COLORS;
     var layer = document.createElement('div');
     layer.className = 'confetti-layer';
     document.body.appendChild(layer);
-    for (var i = 0; i < 70; i++) {
+    for (var i = 0; i < count; i++) {
       var piece = document.createElement('div');
       piece.className = 'confetti-piece';
       var size = 6 + Math.random() * 7;
@@ -927,7 +946,7 @@
       piece.style.width = (tall ? size * 0.6 : size) + 'px';
       piece.style.height = (tall ? size * 1.6 : size) + 'px';
       piece.style.left = (Math.random() * 100) + 'vw';
-      piece.style.background = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+      piece.style.background = colors[Math.floor(Math.random() * colors.length)];
       var drift = (Math.random() * 160 - 80).toFixed(0) + 'px';
       var spin = (Math.random() > 0.5 ? 1 : -1) * (360 + Math.random() * 720);
       piece.style.setProperty('--drift', drift);
@@ -952,6 +971,30 @@
     if (!prefersReducedMotion) spawnConfetti();
   }
 
+  /* 家族全員出席のお祝い演出。今日という1日の中で「登録メンバー全員の
+   * 出席がそろった」瞬間だけ、個人の連続記録とは別の見た目（ゴールドを
+   * 混ぜた紙吹雪＋大きめバナー）で表示する。 */
+  function isFamilyComplete(dateStr) {
+    if (!state.members.length) return false;
+    var list = state.gymLogs[dateStr] || [];
+    return state.members.every(function (m) { return list.indexOf(m.id) !== -1; });
+  }
+  function showFamilyBanner() {
+    var wrap = document.createElement('div');
+    wrap.className = 'banner-wrap';
+    wrap.innerHTML = '<div class="bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-2.5">' +
+      '<div class="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">' + icon('award', 'w-5 h-5 text-amber-300') + '</div>' +
+      '<div><p class="font-bold text-sm leading-tight">家族全員、今日も出席！</p><p class="text-[11px] text-emerald-50">' + state.members.length + '人全員がそろいました</p></div>' +
+      '</div>';
+    document.body.appendChild(wrap);
+    requestAnimationFrame(function () { wrap.classList.add('show'); });
+    setTimeout(function () { wrap.remove(); }, 2500);
+  }
+  function celebrateFamilyComplete() {
+    showFamilyBanner();
+    if (!prefersReducedMotion) spawnConfetti(110, FAMILY_CONFETTI_COLORS);
+  }
+
   /* =========================================================
    * アクション
    * ========================================================= */
@@ -959,6 +1002,7 @@
     if (dateStr > TODAY_KEY || state.readOnly) return;
     var list = state.gymLogs[dateStr] || [];
     var has = list.indexOf(memberId) !== -1;
+    var wasFamilyComplete = dateStr === TODAY_KEY && isFamilyComplete(dateStr);
     var next = has ? list.filter(function (id) { return id !== memberId; }) : list.concat([memberId]);
     if (next.length) state.gymLogs[dateStr] = next; else delete state.gymLogs[dateStr];
     syncState();
@@ -967,6 +1011,9 @@
     if (!has && dateStr === TODAY_KEY) {
       var streak = computeStreak(memberId);
       if (streak >= 2) celebrateStreak(streak);
+      /* 「全員そろった」は、今回のトグルでちょうどそろった瞬間だけ
+       * 出す（すでに全員そろっている状態への追加操作では出さない） */
+      if (!wasFamilyComplete && isFamilyComplete(dateStr)) celebrateFamilyComplete();
     }
   }
   function togglePlanned(dateStr, memberId) {
